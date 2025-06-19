@@ -23,14 +23,14 @@ SQL Agent Web allows you to interact with your SQLite databases through an intui
 
 ### Prerequisites
 
-*   Python 3.6+
+*   Python 3.10+
 *   `pip` for package management
 
 ### Installation & Setup
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/sql_agent_web.git
+    git clone https://github.com/Chrisliao0806/sql_agent_web.git
     cd sql_agent_web
     ```
 
