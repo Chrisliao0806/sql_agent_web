@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}首頁 - SQL 查詢比較工具{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 text-center mb-5">
+        <h1 class="display-4 fw-bold text-primary mb-3">
+            <i class="fas fa-database me-3"></i>SQL 查詢比較工具
+        </h1>
+        <p class="lead text-muted">比較傳統 SQL 查詢與 AI SQL Agent 的查詢方式和結果</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card">
+            <div class="card-body">
+                <h3 class="card-title text-center mb-4">
+                    <i class="fas fa-upload me-2"></i>上傳您的 SQLite 資料庫
+                </h3>
+                
+                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                    <div class="upload-area">
+                        <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted mb-3">選擇或拖拽您的資料庫文件</h5>
+                        <input type="file" class="form-control" name="file" accept=".db,.sqlite,.sqlite3" required>
+                        <small class="text-muted mt-2 d-block">
+                            支援格式：.db, .sqlite, .sqlite3 (最大 16MB)
+                        </small>
+                    </div>
+                    
+                    <div class="text-center mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-upload me-2"></i>開始分析
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-5">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-code fa-3x text-primary mb-3"></i>
+                <h5 class="card-title">傳統 SQL 查詢</h5>
+                <p class="card-text">使用標準 SQL 語法進行精確查詢，完全控制查詢邏輯</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-robot fa-3x text-success mb-3"></i>
+                <h5 class="card-title">AI SQL Agent</h5>
+                <p class="card-text">使用自然語言描述需求，AI 自動生成對應的 SQL 查詢</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-chart-bar fa-3x text-warning mb-3"></i>
+                <h5 class="card-title">結果比較</h5>
+                <p class="card-text">並排顯示兩種查詢方式的結果，便於分析差異</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-5">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-info-circle me-2"></i>使用說明
+                </h5>
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        上傳您的 SQLite 資料庫文件（.db, .sqlite, .sqlite3）
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        查看資料庫結構和示例數據
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        在比較頁面中同時使用傳統 SQL 和自然語言查詢
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        比較兩種方式的查詢結果和執行效率
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 美化文件上傳
+document.querySelector('input[type="file"]').addEventListener('change', function(e) {
+    const fileName = e.target.files[0]?.name;
+    if (fileName) {
+        const uploadArea = e.target.closest('.upload-area');
+        uploadArea.style.borderColor = '#667eea';
+        uploadArea.style.background = 'rgba(102, 126, 234, 0.1)';
+        
+        const icon = uploadArea.querySelector('.fa-cloud-upload-alt');
+        icon.className = 'fas fa-check-circle fa-3x text-success mb-3';
+        
+        const title = uploadArea.querySelector('h5');
+        title.textContent = `已選擇: ${fileName}`;
+        title.className = 'text-success mb-3';
+    }
+});
+
+// 拖拽上傳功能
+const uploadArea = document.querySelector('.upload-area');
+const fileInput = document.querySelector('input[type="file"]');
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    uploadArea.addEventListener(eventName, preventDefaults, false);
+});
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+['dragenter', 'dragover'].forEach(eventName => {
+    uploadArea.addEventListener(eventName, highlight, false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    uploadArea.addEventListener(eventName, unhighlight, false);
+});
+
+function highlight(e) {
+    uploadArea.style.borderColor = '#667eea';
+    uploadArea.style.background = 'rgba(102, 126, 234, 0.1)';
+}
+
+function unhighlight(e) {
+    uploadArea.style.borderColor = '#ddd';
+    uploadArea.style.background = 'rgba(255, 255, 255, 0.5)';
+}
+
+uploadArea.addEventListener('drop', handleDrop, false);
+
+function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    
+    fileInput.files = files;
+    
+    // 觸發 change 事件
+    const event = new Event('change', { bubbles: true });
+    fileInput.dispatchEvent(event);
+}
+</script>
+{% endblock %}

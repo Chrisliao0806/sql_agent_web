@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}資料庫資訊 - SQL 查詢比較工具{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 text-center mb-4">
+        <h2 class="fw-bold text-primary">
+            <i class="fas fa-database me-2"></i>資料庫分析結果
+        </h2>
+        <p class="text-muted">文件：{{ filename }}</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12 text-center">
+        <a href="{{ url_for('compare_queries', filename=filename) }}" class="btn btn-primary btn-lg">
+            <i class="fas fa-search me-2"></i>開始查詢比較
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-table me-2"></i>資料庫結構概覽
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for table_name, table_data in table_info.items() %}
+                    <div class="col-lg-6 mb-4">
+                        <div class="table-info">
+                            <h6 class="fw-bold text-primary">
+                                <i class="fas fa-table me-2"></i>{{ table_name }}
+                            </h6>
+                            
+                            <!-- 表格結構 -->
+                            <div class="mb-3">
+                                <strong>欄位結構：</strong>
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>欄位名稱</th>
+                                                <th>類型</th>
+                                                <th>非空</th>
+                                                <th>主鍵</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for column in table_data.columns %}
+                                            <tr>
+                                                <td><code>{{ column[1] }}</code></td>
+                                                <td><span class="badge bg-secondary">{{ column[2] }}</span></td>
+                                                <td>
+                                                    {% if column[3] %}
+                                                        <span class="badge bg-warning">NOT NULL</span>
+                                                    {% else %}
+                                                        <span class="badge bg-light text-dark">NULL</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    {% if column[5] %}
+                                                        <span class="badge bg-primary">PK</span>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- 示例數據 -->
+                            {% if table_data.sample_data %}
+                            <div>
+                                <strong>示例數據（前5筆）：</strong>
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr>
+                                                {% for column in table_data.columns %}
+                                                <th>{{ column[1] }}</th>
+                                                {% endfor %}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for row in table_data.sample_data %}
+                                            <tr>
+                                                {% for cell in row %}
+                                                <td>
+                                                    {% if cell is none %}
+                                                        <span class="text-muted">NULL</span>
+                                                    {% else %}
+                                                        {{ cell }}
+                                                    {% endif %}
+                                                </td>
+                                                {% endfor %}
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="text-muted">
+                                <em>此表格沒有數據</em>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-lightbulb me-2"></i>查詢建議
+                </h5>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-primary">傳統 SQL 查詢示例：</h6>
+                        <ul class="list-unstyled">
+                            {% for table_name in table_info.keys() %}
+                            <li class="mb-2">
+                                <code class="bg-light p-2 rounded d-block">
+                                    SELECT * FROM {{ table_name }} LIMIT 10;
+                                </code>
+                            </li>
+                            <li class="mb-2">
+                                <code class="bg-light p-2 rounded d-block">
+                                    SELECT COUNT(*) FROM {{ table_name }};
+                                </code>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-success">自然語言查詢示例：</h6>
+                        <ul class="list-unstyled">
+                            {% for table_name in table_info.keys() %}
+                            <li class="mb-2">
+                                <span class="badge bg-success me-2">範例</span>
+                                顯示 {{ table_name }} 表格的所有資料
+                            </li>
+                            <li class="mb-2">
+                                <span class="badge bg-success me-2">範例</span>
+                                {{ table_name }} 表格有多少筆資料？
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
