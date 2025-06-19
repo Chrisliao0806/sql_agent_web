@@ -2,8 +2,7 @@ from flask import Flask, request, render_template, jsonify, redirect, url_for, f
 import sqlite3
 import os
 from werkzeug.utils import secure_filename
-import pandas as pd
-import json
+from services.sql_agent import SQLAgent
 
 app = Flask(__name__)
 app.secret_key = "your-secret-key-here"
@@ -75,45 +74,6 @@ def execute_sql_query(db_path, query):
         return {"success": False, "error": str(e)}
 
 
-def sql_agent_query(db_path, natural_language_query):
-    """SQL Agent 查詢 (目前模擬，後續可以替換為真實的 AI 實現)"""
-    # 這裡先模擬 SQL Agent 的行為，你可以後續替換為真實的 AI 模型
-
-    # 簡單的關鍵字映射 (示例)
-    query_mapping = {
-        "所有": "SELECT * FROM",
-        "全部": "SELECT * FROM",
-        "多少": "SELECT COUNT(*) FROM",
-        "總數": "SELECT COUNT(*) FROM",
-        "平均": "SELECT AVG",
-        "最大": "SELECT MAX",
-        "最小": "SELECT MIN",
-    }
-
-    # 獲取表格資訊
-    table_info = get_table_info(db_path)
-    table_names = list(table_info.keys())
-
-    # 簡單的自然語言轉SQL (示例實現)
-    generated_sql = ""
-
-    if table_names:
-        first_table = table_names[0]
-        if "所有" in natural_language_query or "全部" in natural_language_query:
-            generated_sql = f"SELECT * FROM {first_table} LIMIT 10;"
-        elif "多少" in natural_language_query or "總數" in natural_language_query:
-            generated_sql = f"SELECT COUNT(*) as total_count FROM {first_table};"
-        else:
-            generated_sql = f"SELECT * FROM {first_table} LIMIT 5;"
-
-    # 執行生成的SQL
-    result = execute_sql_query(db_path, generated_sql)
-    result["generated_sql"] = generated_sql
-    result["natural_query"] = natural_language_query
-
-    return result
-
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -181,8 +141,52 @@ def api_agent_query():
     if not os.path.exists(filepath):
         return jsonify({"success": False, "error": "資料庫文件不存在"})
 
-    result = sql_agent_query(filepath, natural_query)
-    return jsonify(result)
+    try:
+        # 建立 SQLAgent 實例，使用 sqlite:/// 格式的 URI
+        db_uri = f"sqlite:///{filepath}"
+        sql_agent = SQLAgent(db_uri)
+
+        # 使用 SQLAgent 處理自然語言查詢
+        agent_result = sql_agent.run(natural_query)
+        print("Agent Result:", agent_result)
+        
+        # 如果有生成的SQL，執行它來獲取實際的查詢結果
+        sql_query_result = None
+        if agent_result.get("query") and agent_result.get("query") != "查無結果":
+            sql_query_result = execute_sql_query(filepath, agent_result.get("query"))
+        
+        # 格式化回應
+        result = {
+            "success": True,
+            "generated_sql": agent_result.get("query", ""),
+            "natural_query": natural_query,
+            "generation": agent_result.get("generation", ""),
+            "sql_result": agent_result.get("result", "")
+        }
+        
+        # 如果有SQL查詢結果，添加表格資料
+        if sql_query_result and sql_query_result.get("success"):
+            result.update({
+                "data": sql_query_result.get("data", []),
+                "columns": sql_query_result.get("columns", []),
+                "row_count": sql_query_result.get("row_count", 0)
+            })
+        else:
+            result.update({
+                "data": [],
+                "columns": [],
+                "row_count": 0
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify(
+            {
+                "success": False,
+                "error": f"SQL Agent 處理時發生錯誤: {str(e)}",
+            }
+        )
 
 
 if __name__ == "__main__":
