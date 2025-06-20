@@ -5,7 +5,7 @@ from werkzeug.utils import secure_filename
 from services.sql_agent import SQLAgent
 
 app = Flask(__name__)
-app.secret_key = "your-secret-key-here"
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max file size
 
@@ -190,4 +190,8 @@ def api_agent_query():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # 開發環境
+    app.run(debug=True, host='0.0.0.0', port=5000)
+else:
+    # 生產環境配置
+    app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-this-in-production')
