@@ -1,11 +1,12 @@
 from flask import Flask, request, render_template, jsonify, redirect, url_for, flash
 import sqlite3
 import os
+import pandas as pd
 from werkzeug.utils import secure_filename
 from services.sql_agent import SQLAgent
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
+app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here")
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max file size
 
@@ -13,11 +14,61 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max file size
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 # 允許的文件類型
-ALLOWED_EXTENSIONS = {"db", "sqlite", "sqlite3"}
+ALLOWED_EXTENSIONS = {"db", "sqlite", "sqlite3", "csv"}
 
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def convert_csv_to_sqlite(csv_path, db_path):
+    """將CSV文件轉換為SQLite資料庫"""
+    try:
+        # 嘗試不同的編碼讀取CSV文件
+        encodings = ["utf-8", "big5", "gbk", "latin1", "cp1252"]
+        df = None
+
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(csv_path, encoding=encoding)
+                if not df.empty:
+                    print(f"成功使用 {encoding} 編碼讀取CSV文件")
+                    break
+            except Exception as e:
+                print(f"使用 {encoding} 編碼失敗: {e}")
+                continue
+
+        if df is None or df.empty:
+            return False, "無法讀取CSV文件，請檢查文件格式和編碼"
+
+        # 清理列名（移除特殊字符，確保符合SQL標準）
+        df.columns = [
+            col.strip().replace(" ", "_").replace("-", "_") for col in df.columns
+        ]
+
+        # 創建SQLite連接
+        conn = sqlite3.connect(db_path)
+
+        # 取得CSV檔案名稱作為表格名稱
+        table_name = os.path.splitext(os.path.basename(csv_path))[0]
+        # 清理表格名稱，確保符合SQL標準
+        table_name = table_name.replace(" ", "_").replace("-", "_")
+
+        # 將DataFrame寫入SQLite，使用檔案名稱作為表格名稱
+        df.to_sql(table_name, conn, if_exists="replace", index=False)
+
+        conn.close()
+        print(f"CSV文件已成功轉換為SQLite，表格名稱: {table_name}")
+        return True, table_name
+
+    except Exception as e:
+        print(f"CSV轉換錯誤: {e}")
+        return False, str(e)
+
+
+def is_csv_file(filename):
+    """檢查是否為CSV文件"""
+    return filename.lower().endswith(".csv")
 
 
 def get_table_info(db_path):
@@ -95,14 +146,33 @@ def upload_file():
         filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
         file.save(filepath)
 
-        # 獲取資料庫資訊
-        table_info = get_table_info(filepath)
+        # 檢查是否為CSV文件，如果是則轉換為SQLite
+        if is_csv_file(filename):
+            # 生成對應的SQLite文件名
+            db_filename = os.path.splitext(filename)[0] + ".db"
+            db_filepath = os.path.join(app.config["UPLOAD_FOLDER"], db_filename)
 
-        return render_template(
-            "database_info.html", filename=filename, table_info=table_info
-        )
+            # 轉換CSV為SQLite
+            success, result = convert_csv_to_sqlite(filepath, db_filepath)
+
+            if success:
+                # 獲取資料庫資訊
+                table_info = get_table_info(db_filepath)
+                flash(f"CSV文件已成功轉換為SQLite資料庫，表格名稱: {result}")
+                return render_template(
+                    "database_info.html", filename=db_filename, table_info=table_info
+                )
+            else:
+                flash(f"CSV轉換失敗: {result}")
+                return redirect(request.url)
+        else:
+            # 原有的SQLite文件處理邏輯
+            table_info = get_table_info(filepath)
+            return render_template(
+                "database_info.html", filename=filename, table_info=table_info
+            )
     else:
-        flash("請上傳有效的資料庫文件 (.db, .sqlite, .sqlite3)")
+        flash("請上傳有效的資料庫文件 (.db, .sqlite, .sqlite3) 或 CSV 文件 (.csv)")
         return redirect(request.url)
 
 
@@ -149,34 +219,32 @@ def api_agent_query():
         # 使用 SQLAgent 處理自然語言查詢
         agent_result = sql_agent.run(natural_query)
         print("Agent Result:", agent_result)
-        
+
         # 如果有生成的SQL，執行它來獲取實際的查詢結果
         sql_query_result = None
         if agent_result.get("query") and agent_result.get("query") != "查無結果":
             sql_query_result = execute_sql_query(filepath, agent_result.get("query"))
-        
+
         # 格式化回應
         result = {
             "success": True,
             "generated_sql": agent_result.get("query", ""),
             "natural_query": natural_query,
             "generation": agent_result.get("generation", ""),
-            "sql_result": agent_result.get("result", "")
+            "sql_result": agent_result.get("result", ""),
         }
-        
+
         # 如果有SQL查詢結果，添加表格資料
         if sql_query_result and sql_query_result.get("success"):
-            result.update({
-                "data": sql_query_result.get("data", []),
-                "columns": sql_query_result.get("columns", []),
-                "row_count": sql_query_result.get("row_count", 0)
-            })
+            result.update(
+                {
+                    "data": sql_query_result.get("data", []),
+                    "columns": sql_query_result.get("columns", []),
+                    "row_count": sql_query_result.get("row_count", 0),
+                }
+            )
         else:
-            result.update({
-                "data": [],
-                "columns": [],
-                "row_count": 0
-            })
+            result.update({"data": [], "columns": [], "row_count": 0})
 
         return jsonify(result)
 
@@ -191,7 +259,9 @@ def api_agent_query():
 
 if __name__ == "__main__":
     # 開發環境
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)
 else:
     # 生產環境配置
-    app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-this-in-production')
+    app.secret_key = os.environ.get(
+        "SECRET_KEY", "your-secret-key-here-change-this-in-production"
+    )
