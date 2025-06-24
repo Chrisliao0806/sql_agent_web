@@ -53,6 +53,42 @@ You can run SQL Agent Web in two ways: **locally with Python** or **using Docker
 4. **Access the application:**
    Open your browser and navigate to `http://localhost:5000`
 
+#### Quick Start Commands
+
+**One-click startup and shutdown:**
+```bash
+# 一鍵啟動 (One-click start)
+./start.sh
+
+# 一鍵關閉 (One-click stop)  
+./stop.sh
+
+# 檢查狀態 (Check status)
+./status.sh
+```
+
+**Manual Docker Compose commands:**
+```bash
+# Start the application
+docker-compose up -d
+
+# Stop the application
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# Rebuild and restart
+docker-compose up -d --build
+```
+
+**For simple web-only deployment:**
+```bash
+# Use simplified configuration (web service only)
+docker-compose -f docker-compose.simple.yml up -d
+docker-compose -f docker-compose.simple.yml down
+```
+
 #### Docker Container Management
 
 **Start the container:**
@@ -84,7 +120,7 @@ docker build -t sql_agent_web .
 docker run -d -p 5000:5000 --name sql_agent_web sql_agent_web
 ```
 
-#### Docker Compose (Alternative)
+#### Docker Compose (Recommended)
 
 If you prefer using Docker Compose:
 
