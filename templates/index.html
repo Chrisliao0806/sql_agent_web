@@ -2,6 +2,23 @@
 
 {% block title %}首頁 - SQL 查詢比較工具{% endblock %}
 
+{% block extra_css %}
+<style>
+    .upload-progress {
+        display: none;
+    }
+    .error-alert {
+        border-left: 4px solid #dc3545;
+    }
+    .success-alert {
+        border-left: 4px solid #28a745;
+    }
+    .warning-alert {
+        border-left: 4px solid #ffc107;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col-12 text-center mb-5">
@@ -12,6 +29,9 @@
     </div>
 </div>
 
+<!-- 動態通知區域 -->
+<div id="notificationArea"></div>
+
 <div class="row">
     <div class="col-lg-8 mx-auto">
         <div class="card">
@@ -20,7 +40,7 @@
                     <i class="fas fa-upload me-2"></i>上傳您的資料庫或CSV文件
                 </h3>
                 
-                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" id="uploadForm">
                     <div class="upload-area">
                         <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
                         <h5 class="text-muted mb-3">選擇或拖拽您的資料庫或CSV文件</h5>
@@ -30,8 +50,25 @@
                         </small>
                     </div>
                     
+                    <!-- 上傳進度條 -->
+                    <div class="upload-progress mt-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="spinner-border text-primary me-3" role="status">
+                                <span class="visually-hidden">上傳中...</span>
+                            </div>
+                            <div>
+                                <div class="fw-bold">正在處理文件...</div>
+                                <div class="text-muted small" id="progressText">請稍候，正在上傳和分析您的文件</div>
+                            </div>
+                        </div>
+                        <div class="progress mt-3">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%" id="progressBar"></div>
+                        </div>
+                    </div>
+                    
                     <div class="text-center mt-4">
-                        <button type="submit" class="btn btn-primary btn-lg">
+                        <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn">
                             <i class="fas fa-upload me-2"></i>開始分析
                         </button>
                     </div>
@@ -120,6 +157,183 @@
 
 {% block extra_js %}
 <script>
+// 通知系統
+function showNotification(message, type = 'info', duration = 5000) {
+    const notificationArea = document.getElementById('notificationArea');
+    const alertClass = type === 'error' ? 'error-alert alert-danger' : 
+                      type === 'success' ? 'success-alert alert-success' : 
+                      type === 'warning' ? 'warning-alert alert-warning' : 
+                      'alert-info';
+    
+    const icon = type === 'error' ? 'fa-exclamation-triangle' : 
+                type === 'success' ? 'fa-check-circle' : 
+                type === 'warning' ? 'fa-exclamation-circle' : 
+                'fa-info-circle';
+    
+    const notification = document.createElement('div');
+    notification.className = `alert ${alertClass} alert-dismissible fade show`;
+    notification.style.cssText = 'margin-bottom: 20px; animation: slideInDown 0.3s ease-out;';
+    notification.innerHTML = `
+        <i class="fas ${icon} me-2"></i>
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    notificationArea.appendChild(notification);
+    
+    // 自動移除通知
+    if (duration > 0) {
+        setTimeout(() => {
+            if (notification && notification.parentNode) {
+                const bsAlert = bootstrap.Alert.getOrCreateInstance(notification);
+                bsAlert.close();
+            }
+        }, duration);
+    }
+}
+
+// 文件上傳處理
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const fileInput = document.querySelector('input[type="file"]');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showNotification('請選擇要上傳的文件', 'warning');
+        return;
+    }
+    
+    // 檢查文件大小
+    const maxSize = 16 * 1024 * 1024; // 16MB
+    if (file.size > maxSize) {
+        showNotification('文件大小超過 16MB 限制，請選擇較小的文件', 'error');
+        return;
+    }
+    
+    // 檢查文件類型
+    const allowedTypes = ['.db', '.sqlite', '.sqlite3', '.csv'];
+    const fileName = file.name.toLowerCase();
+    const isValidType = allowedTypes.some(type => fileName.endsWith(type));
+    
+    if (!isValidType) {
+        showNotification('不支援的文件格式，請上傳 .db, .sqlite, .sqlite3 或 .csv 文件', 'error');
+        return;
+    }
+    
+    // 顯示上傳進度
+    showUploadProgress();
+    
+    // 創建FormData並上傳
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // 模擬進度更新
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+        progress += Math.random() * 15;
+        if (progress > 90) progress = 90;
+        updateProgress(progress);
+    }, 200);
+    
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        clearInterval(progressInterval);
+        updateProgress(100);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        return response.text();
+    })
+    .then(html => {
+        // 檢查響應是否包含錯誤信息
+        if (html.includes('CSV轉換失敗') || html.includes('flash-messages')) {
+            // 解析Flash消息
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const flashMessages = doc.querySelectorAll('.alert');
+            
+            let hasError = false;
+            flashMessages.forEach(alert => {
+                const message = alert.textContent.trim();
+                if (message) {
+                    const isError = alert.classList.contains('alert-danger') || 
+                                   message.includes('失敗') || 
+                                   message.includes('錯誤');
+                    showNotification(message, isError ? 'error' : 'success', 8000);
+                    if (isError) hasError = true;
+                }
+            });
+            
+            if (!hasError) {
+                // 成功上傳，跳轉頁面
+                setTimeout(() => {
+                    document.body.innerHTML = html;
+                }, 1000);
+            }
+        } else {
+            // 成功上傳，跳轉頁面
+            showNotification('文件上傳成功！正在跳轉...', 'success', 2000);
+            setTimeout(() => {
+                document.body.innerHTML = html;
+            }, 1000);
+        }
+    })
+    .catch(error => {
+        clearInterval(progressInterval);
+        console.error('Upload error:', error);
+        
+        let errorMessage = '文件上傳失敗，請重試';
+        if (error.message.includes('413')) {
+            errorMessage = '文件過大，請選擇小於 16MB 的文件';
+        } else if (error.message.includes('415')) {
+            errorMessage = '不支援的文件格式';
+        } else if (error.message.includes('timeout')) {
+            errorMessage = '上傳超時，請檢查網路連接並重試';
+        }
+        
+        showNotification(errorMessage, 'error', 10000);
+    })
+    .finally(() => {
+        hideUploadProgress();
+    });
+});
+
+function showUploadProgress() {
+    document.getElementById('uploadBtn').disabled = true;
+    document.querySelector('.upload-progress').style.display = 'block';
+    document.querySelector('.upload-area').style.opacity = '0.6';
+}
+
+function hideUploadProgress() {
+    document.getElementById('uploadBtn').disabled = false;
+    document.querySelector('.upload-progress').style.display = 'none';
+    document.querySelector('.upload-area').style.opacity = '1';
+    updateProgress(0);
+}
+
+function updateProgress(percent) {
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    
+    progressBar.style.width = percent + '%';
+    
+    if (percent < 30) {
+        progressText.textContent = '正在上傳文件...';
+    } else if (percent < 60) {
+        progressText.textContent = '正在分析文件格式...';
+    } else if (percent < 90) {
+        progressText.textContent = '正在轉換和處理數據...';
+    } else {
+        progressText.textContent = '即將完成...';
+    }
+}
+
 // 美化文件上傳
 document.querySelector('input[type="file"]').addEventListener('change', function(e) {
     const fileName = e.target.files[0]?.name;
@@ -134,6 +348,16 @@ document.querySelector('input[type="file"]').addEventListener('change', function
         const title = uploadArea.querySelector('h5');
         title.textContent = `已選擇: ${fileName}`;
         title.className = 'text-success mb-3';
+        
+        // 顯示文件信息
+        const file = e.target.files[0];
+        const fileSize = (file.size / 1024 / 1024).toFixed(2);
+        const small = uploadArea.querySelector('small');
+        small.innerHTML = `
+            文件大小: ${fileSize} MB<br>
+            <span class="text-success">✓ 文件格式有效</span>
+        `;
+        small.className = 'text-info mt-2 d-block';
     }
 });
 
@@ -174,11 +398,29 @@ function handleDrop(e) {
     const dt = e.dataTransfer;
     const files = dt.files;
     
-    fileInput.files = files;
-    
-    // 觸發 change 事件
-    const event = new Event('change', { bubbles: true });
-    fileInput.dispatchEvent(event);
+    if (files.length > 0) {
+        fileInput.files = files;
+        
+        // 觸發 change 事件
+        const event = new Event('change', { bubbles: true });
+        fileInput.dispatchEvent(event);
+    }
 }
+
+// 添加CSS動畫
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideInDown {
+        from {
+            transform: translateY(-20px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+`;
+document.head.appendChild(style);
 </script>
 {% endblock %}
