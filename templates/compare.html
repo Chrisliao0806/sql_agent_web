@@ -76,6 +76,26 @@
     .table-card:active {
         transform: translateY(0px);
     }
+    .api-key-section {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 2px solid #dee2e6;
+    }
+    .api-key-input {
+        border-radius: 8px;
+        border: 2px solid #dee2e6;
+        transition: all 0.3s ease;
+    }
+    .api-key-input:focus {
+        border-color: #28a745;
+        box-shadow: 0 0 10px rgba(40, 167, 69, 0.2);
+    }
+    .api-status {
+        font-size: 0.9em;
+        margin-top: 5px;
+    }
 </style>
 {% endblock %}
 
@@ -86,6 +106,48 @@
             <i class="fas fa-search me-2"></i>查詢比較工具
         </h2>
         <p class="text-muted">文件：{{ filename }}</p>
+    </div>
+</div>
+
+<!-- OpenAI API Key 設定區域 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="api-key-section">
+            <h5 class="mb-3 text-success">
+                <i class="fas fa-key me-2"></i>OpenAI API 設定
+            </h5>
+            <div class="row align-items-end">
+                <div class="col-md-8">
+                    <label for="openaiApiKey" class="form-label">
+                        <strong>OpenAI API Key：</strong>
+                        <small class="text-muted">(用於 AI SQL Agent 功能)</small>
+                    </label>
+                    <input 
+                        type="password" 
+                        class="form-control api-key-input" 
+                        id="openaiApiKey" 
+                        placeholder="請輸入您的 OpenAI API Key (sk-...)"
+                        autocomplete="off"
+                    >
+                    <div id="apiKeyStatus" class="api-status"></div>
+                </div>
+                <div class="col-md-4">
+                    <button type="button" class="btn btn-success" id="validateApiKey">
+                        <i class="fas fa-check-circle me-2"></i>驗證 API Key
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary ms-2" id="clearApiKey">
+                        <i class="fas fa-times me-2"></i>清除
+                    </button>
+                </div>
+            </div>
+            <div class="mt-3">
+                <small class="text-muted">
+                    <i class="fas fa-info-circle me-1"></i>
+                    您的 API Key 僅在本次會話中使用，不會被保存到伺服器。如需獲取 API Key，請前往 
+                    <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI 平台</a>
+                </small>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -160,6 +222,7 @@
         <div class="agent-section">
             <h4 class="mb-3">
                 <i class="fas fa-robot me-2"></i>AI SQL Agent
+                <small class="text-muted">(需要 OpenAI API Key)</small>
             </h4>
             <form id="agentQueryForm">
                 <div class="mb-3">
@@ -168,11 +231,13 @@
                         class="form-control query-input" 
                         id="naturalQuery" 
                         rows="4" 
-                        placeholder="請用自然語言描述您的查詢需求，例如：&#10;顯示所有資料&#10;有多少筆資料？&#10;找出最大值"
+                        placeholder="請先設定並驗證 OpenAI API Key 以啟用此功能"
+                        disabled
                     ></textarea>
+                    <small class="text-muted">請先設定 OpenAI API Key 以啟用此功能</small>
                 </div>
-                <button type="submit" class="btn btn-light btn-lg w-100">
-                    <i class="fas fa-magic me-2"></i>AI 智能查詢
+                <button type="submit" class="btn btn-light btn-lg w-100" disabled id="agentQueryBtn">
+                    <i class="fas fa-magic me-2"></i>AI 智能查詢 (需要 API Key)
                     <div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>
                 </button>
             </form>
@@ -239,113 +304,307 @@
 const filename = "{{ filename }}";
 let sqlResults = null;
 let agentResults = null;
+let currentApiKey = null;
 
-// SQL 查詢表單提交
-document.getElementById('sqlQueryForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    const query = document.getElementById('sqlQuery').value.trim();
-    if (!query) {
-        alert('請輸入 SQL 查詢語句');
-        return;
-    }
-    
-    const button = this.querySelector('button[type="submit"]');
-    const spinner = button.querySelector('.loading-spinner');
-    const resultDiv = document.getElementById('sqlResult');
-    
-    // 顯示載入狀態
-    button.disabled = true;
-    spinner.style.display = 'inline-block';
-    
-    try {
-        const startTime = performance.now();
+document.addEventListener('DOMContentLoaded', function() {
+    // API Key 相關元素
+    const apiKeyInput = document.getElementById('openaiApiKey');
+    const validateBtn = document.getElementById('validateApiKey');
+    const clearBtn = document.getElementById('clearApiKey');
+    const naturalQueryInput = document.getElementById('naturalQuery');
+    const agentQueryBtn = document.getElementById('agentQueryBtn');
+    const apiKeyStatus = document.getElementById('apiKeyStatus');
+
+    // Modal 相關元素
+    const modalEl = document.getElementById('tableInfoModal');
+    const tableInfoModal = new bootstrap.Modal(modalEl);
+
+    // API Key 狀態顯示函數
+    function showApiKeyStatus(message, type) {
+        if (!message) {
+            apiKeyStatus.innerHTML = '';
+            return;
+        }
+
+        let className = '';
+        let icon = '';
         
-        const response = await fetch('/api/sql_query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                filename: filename,
-                query: query
-            })
+        switch(type) {
+            case 'success':
+                className = 'text-success';
+                icon = 'fas fa-check-circle';
+                break;
+            case 'error':
+                className = 'text-danger';
+                icon = 'fas fa-times-circle';
+                break;
+            case 'warning':
+                className = 'text-warning';
+                icon = 'fas fa-exclamation-triangle';
+                break;
+        }
+
+        apiKeyStatus.innerHTML = `<i class="${icon} me-1"></i>${message}`;
+        apiKeyStatus.className = `api-status ${className}`;
+    }
+
+    // 啟用 Agent 查詢
+    function enableAgentQuery() {
+        naturalQueryInput.disabled = false;
+        naturalQueryInput.placeholder = '請用自然語言描述您的查詢需求，例如：\n顯示所有資料\n有多少筆資料？\n找出最大值';
+        agentQueryBtn.disabled = false;
+        agentQueryBtn.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
+        
+        const smallText = naturalQueryInput.parentElement.querySelector('small');
+        smallText.textContent = '使用 AI 將自然語言轉換為 SQL 查詢';
+        smallText.className = 'text-success';
+    }
+
+    // 禁用 Agent 查詢
+    function disableAgentQuery() {
+        naturalQueryInput.disabled = true;
+        naturalQueryInput.placeholder = '請先設定並驗證 OpenAI API Key 以啟用此功能';
+        agentQueryBtn.disabled = true;
+        agentQueryBtn.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢 (需要 API Key)<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
+        
+        const smallText = naturalQueryInput.parentElement.querySelector('small');
+        smallText.textContent = '請先設定 OpenAI API Key 以啟用此功能';
+        smallText.className = 'text-muted';
+    }
+
+    // 驗證 API Key
+    validateBtn.addEventListener('click', async function() {
+        const apiKey = apiKeyInput.value.trim();
+        
+        if (!apiKey) {
+            showApiKeyStatus('請輸入 API Key', 'error');
+            return;
+        }
+
+        if (!apiKey.startsWith('sk-')) {
+            showApiKeyStatus('API Key 格式不正確，應以 sk- 開頭', 'error');
+            return;
+        }
+
+        validateBtn.disabled = true;
+        validateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>驗證中...';
+
+        try {
+            const response = await fetch('/api/validate_api_key', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    api_key: apiKey
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                currentApiKey = apiKey;
+                showApiKeyStatus('API Key 驗證成功！', 'success');
+                enableAgentQuery();
+            } else {
+                showApiKeyStatus('API Key 驗證失敗：' + data.error, 'error');
+                disableAgentQuery();
+            }
+
+        } catch (error) {
+            showApiKeyStatus('驗證失敗：網路錯誤', 'error');
+            disableAgentQuery();
+        } finally {
+            validateBtn.disabled = false;
+            validateBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i>驗證 API Key';
+        }
+    });
+
+    // 清除 API Key
+    clearBtn.addEventListener('click', function() {
+        apiKeyInput.value = '';
+        currentApiKey = null;
+        showApiKeyStatus('', '');
+        disableAgentQuery();
+    });
+
+    // API Key 輸入變化時重置狀態
+    apiKeyInput.addEventListener('input', function() {
+        if (currentApiKey && this.value.trim() !== currentApiKey) {
+            currentApiKey = null;
+            disableAgentQuery();
+            showApiKeyStatus('API Key 已變更，請重新驗證', 'warning');
+        }
+    });
+
+    // 表格卡片點擊事件
+    const tableCards = document.querySelectorAll('.table-card');
+    tableCards.forEach(card => {
+        card.addEventListener('click', function() {
+            const tableName = this.dataset.table;
+            showTableInfo(tableName, tableInfoModal);
         });
+    });
+
+    // 使用表格按鈕
+    document.getElementById('useTableBtn').addEventListener('click', function() {
+        const tableName = modalEl.getAttribute('data-current-table');
+        const sqlQuery = document.getElementById('sqlQuery');
         
-        const endTime = performance.now();
-        const data = await response.json();
-        data.executionTime = (endTime - startTime).toFixed(2);
+        if (tableName) {
+            sqlQuery.value = `SELECT * FROM ${tableName} LIMIT 10;`;
+            sqlQuery.focus();
+            tableInfoModal.hide();
+            
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
+            alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            alertDiv.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                已將 ${tableName} 的查詢語句插入到SQL查詢框
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                if (alertDiv) {
+                    const bsAlert = bootstrap.Alert.getOrCreateInstance(alertDiv);
+                    if (bsAlert) {
+                        bsAlert.close();
+                    }
+                }
+            }, 3000);
+        }
+    });
+
+    // SQL 查詢表單提交
+    document.getElementById('sqlQueryForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
         
-        sqlResults = data;
-        displaySQLResult(data, resultDiv);
-        updateComparison();
+        const query = document.getElementById('sqlQuery').value.trim();
+        if (!query) {
+            alert('請輸入 SQL 查詢語句');
+            return;
+        }
         
-    } catch (error) {
-        resultDiv.innerHTML = `
-            <div class="error-message">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                查詢執行失敗：${error.message}
-            </div>
-        `;
-    } finally {
-        button.disabled = false;
-        spinner.style.display = 'none';
-    }
+        const button = this.querySelector('button[type="submit"]');
+        const spinner = button.querySelector('.loading-spinner');
+        const resultDiv = document.getElementById('sqlResult');
+        
+        // 顯示載入狀態
+        button.disabled = true;
+        spinner.style.display = 'inline-block';
+        
+        try {
+            const startTime = performance.now();
+            
+            const response = await fetch('/api/sql_query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    filename: filename,
+                    query: query
+                })
+            });
+            
+            const endTime = performance.now();
+            const data = await response.json();
+            data.executionTime = (endTime - startTime).toFixed(2);
+            
+            sqlResults = data;
+            displaySQLResult(data, resultDiv);
+            updateComparison();
+            
+        } catch (error) {
+            resultDiv.innerHTML = `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    查詢執行失敗：${error.message}
+                </div>
+            `;
+        } finally {
+            button.disabled = false;
+            spinner.style.display = 'none';
+        }
+    });
+
+    // Agent 查詢表單提交
+    document.getElementById('agentQueryForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        console.log('Agent query form submitted');
+        
+        const query = document.getElementById('naturalQuery').value.trim();
+        if (!query) {
+            alert('請輸入自然語言查詢');
+            return;
+        }
+
+        if (!currentApiKey) {
+            alert('請先設定並驗證 OpenAI API Key');
+            return;
+        }
+        
+        const button = this.querySelector('button[type="submit"]');
+        const spinner = button.querySelector('.loading-spinner');
+        const resultDiv = document.getElementById('agentResult');
+        
+        console.log('Starting agent query...', { query, hasApiKey: !!currentApiKey });
+        
+        // 顯示載入狀態
+        button.disabled = true;
+        spinner.style.display = 'inline-block';
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>AI 查詢中...<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
+        
+        try {
+            const startTime = performance.now();
+            
+            const response = await fetch('/api/agent_query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    filename: filename,
+                    query: query,
+                    api_key: currentApiKey
+                })
+            });
+            
+            const endTime = performance.now();
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            data.executionTime = (endTime - startTime).toFixed(2);
+            
+            console.log('Agent query response:', data);
+            
+            agentResults = data;
+            displayAgentResult(data, resultDiv);
+            updateComparison();
+            
+        } catch (error) {
+            console.error('Agent query error:', error);
+            resultDiv.innerHTML = `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    查詢執行失敗：${error.message}
+                </div>
+            `;
+        } finally {
+            button.disabled = false;
+            spinner.style.display = 'none';
+            button.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
+        }
+    });
 });
 
-// Agent 查詢表單提交
-document.getElementById('agentQueryForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    const query = document.getElementById('naturalQuery').value.trim();
-    if (!query) {
-        alert('請輸入自然語言查詢');
-        return;
-    }
-    
-    const button = this.querySelector('button[type="submit"]');
-    const spinner = button.querySelector('.loading-spinner');
-    const resultDiv = document.getElementById('agentResult');
-    
-    // 顯示載入狀態
-    button.disabled = true;
-    spinner.style.display = 'inline-block';
-    
-    try {
-        const startTime = performance.now();
-        
-        const response = await fetch('/api/agent_query', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                filename: filename,
-                query: query
-            })
-        });
-        
-        const endTime = performance.now();
-        const data = await response.json();
-        data.executionTime = (endTime - startTime).toFixed(2);
-        
-        agentResults = data;
-        displayAgentResult(data, resultDiv);
-        updateComparison();
-        
-    } catch (error) {
-        resultDiv.innerHTML = `
-            <div class="error-message">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                查詢執行失敗：${error.message}
-            </div>
-        `;
-    } finally {
-        button.disabled = false;
-        spinner.style.display = 'none';
-    }
-});
-
+// 結果顯示函數
 function displaySQLResult(data, container) {
     if (data.success) {
         let html = `
@@ -499,49 +758,6 @@ function updateComparison() {
         comparisonSection.style.display = 'block';
     }
 }
-
-document.addEventListener('DOMContentLoaded', function() {
-    const modalEl = document.getElementById('tableInfoModal');
-    const tableInfoModal = new bootstrap.Modal(modalEl);
-
-    const tableCards = document.querySelectorAll('.table-card');
-    tableCards.forEach(card => {
-        card.addEventListener('click', function() {
-            const tableName = this.dataset.table;
-            showTableInfo(tableName, tableInfoModal);
-        });
-    });
-
-    document.getElementById('useTableBtn').addEventListener('click', function() {
-        const tableName = modalEl.getAttribute('data-current-table');
-        const sqlQuery = document.getElementById('sqlQuery');
-        
-        if (tableName) {
-            sqlQuery.value = `SELECT * FROM ${tableName} LIMIT 10;`;
-            sqlQuery.focus();
-            tableInfoModal.hide();
-            
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
-            alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-            alertDiv.innerHTML = `
-                <i class="fas fa-check-circle me-2"></i>
-                已將 ${tableName} 的查詢語句插入到SQL查詢框
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            `;
-            document.body.appendChild(alertDiv);
-            
-            setTimeout(() => {
-                if (alertDiv) {
-                    const bsAlert = bootstrap.Alert.getOrCreateInstance(alertDiv);
-                    if (bsAlert) {
-                        bsAlert.close();
-                    }
-                }
-            }, 3000);
-        }
-    });
-});
 
 function showTableInfo(tableName, modalInstance) {
     const tableInfoContent = document.getElementById('tableInfoContent');

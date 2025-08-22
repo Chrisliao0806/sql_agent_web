@@ -26,35 +26,44 @@ class SQLAgent:
     A class that uses an LLM and SQL database to answer questions.
 
     The SQLAgent class provides a way to interact with a SQL database using natural language.
-    It uses a language model (LLM) to generate SQL queries from user questions, 
+    It uses a language model (LLM) to generate SQL queries from user questions,
     executes those queries against the database,
     and then generates a natural language answer from the query results.
 
     Attributes:
         db_path (str): The path to the SQLite database.
         top_k (int): The number of results to return from the database.
-        database (SQLDatabase): An instance of the SQLDatabase class, 
+        database (SQLDatabase): An instance of the SQLDatabase class,
         used to interact with the database.
-        llm (ChatOpenAI): An instance of the ChatOpenAI class, 
+        llm (ChatOpenAI): An instance of the ChatOpenAI class,
         used to generate SQL queries and answers.
         query_prompt_template (PromptTemplate): A prompt template for generating SQL queries.
 
     Methods:
-        clean_sql_string(sql_string: str) -> str: Cleans and formats a SQL string by 
+        clean_sql_string(sql_string: str) -> str: Cleans and formats a SQL string by
         removing unnecessary characters and whitespace.
         is_list_string(s: str) -> bool: Checks if a string is syntactically a Python list.
         write_query(state: dict) -> dict: Generates a SQL query from the given state (question).
         execute_query(state: dict) -> dict: Executes the SQL query and returns the result.
-        generate_answer(state: dict) -> dict: Generates a natural language answer 
+        generate_answer(state: dict) -> dict: Generates a natural language answer
         from the SQL query results.
         run(question: str) -> dict: Executes the workflow to answer a question using SQL.
     """
-    def __init__(self, db_path, top_k=5):
+
+    def __init__(self, db_path, top_k=5, api_key=None):
         logger.info("Initializing SQLAgent with database path: %s", db_path)
         self.db_path = db_path
         self.top_k = top_k
         self.database = SQLDatabase.from_uri(db_path)
-        self.llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
+
+        # 使用提供的 API Key 或環境變量
+        if api_key:
+            self.llm = ChatOpenAI(
+                model="gpt-4.1-nano", temperature=0.2, api_key=api_key
+            )
+        else:
+            self.llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
+
         self.query_prompt_template = PromptTemplate.from_template(SQLTEMPLATE)
 
     def clean_sql_string(self, sql_string):

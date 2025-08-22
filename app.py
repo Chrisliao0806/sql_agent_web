@@ -4,6 +4,7 @@ import os
 import pandas as pd
 from werkzeug.utils import secure_filename
 from services.sql_agent import SQLAgent
+from langchain_openai import ChatOpenAI
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here")
@@ -523,52 +524,118 @@ def api_sql_query():
     return jsonify(result)
 
 
+@app.route("/api/validate_api_key", methods=["POST"])
+def api_validate_api_key():
+    """驗證 OpenAI API Key 是否有效"""
+    try:
+        data = request.json
+        api_key = data.get("api_key")
+
+        if not api_key:
+            return jsonify({"success": False, "error": "請提供 API Key"})
+
+        # 暫時設置環境變量以測試 API Key
+        original_api_key = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = api_key
+
+        try:
+            # 創建測試用的 LLM 實例
+            test_llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0)
+
+            # 進行一個簡單的測試調用
+            test_response = test_llm.invoke("Hello")
+
+            # 如果到這裡沒有拋出異常，說明 API Key 有效
+            return jsonify({"success": True, "message": "API Key 驗證成功"})
+
+        except Exception as e:
+            error_msg = str(e)
+            if (
+                "invalid api key" in error_msg.lower()
+                or "unauthorized" in error_msg.lower()
+            ):
+                return jsonify({"success": False, "error": "API Key 無效"})
+            elif "quota" in error_msg.lower():
+                return jsonify({"success": False, "error": "API 配額已用盡"})
+            else:
+                return jsonify(
+                    {"success": False, "error": f"API Key 驗證失敗: {error_msg}"}
+                )
+        finally:
+            # 恢復原始的 API Key
+            if original_api_key:
+                os.environ["OPENAI_API_KEY"] = original_api_key
+            elif "OPENAI_API_KEY" in os.environ:
+                del os.environ["OPENAI_API_KEY"]
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"驗證過程中發生錯誤: {str(e)}"})
+
+
 @app.route("/api/agent_query", methods=["POST"])
 def api_agent_query():
     data = request.json
     filename = data.get("filename")
     natural_query = data.get("query")
+    api_key = data.get("api_key")  # 從前端獲取 API Key
+
+    if not api_key:
+        return jsonify({"success": False, "error": "請提供 OpenAI API Key"})
 
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     if not os.path.exists(filepath):
         return jsonify({"success": False, "error": "資料庫文件不存在"})
 
     try:
-        # 建立 SQLAgent 實例，使用 sqlite:/// 格式的 URI
-        db_uri = f"sqlite:///{filepath}"
-        sql_agent = SQLAgent(db_uri)
+        # 暫時設置環境變量
+        original_api_key = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = api_key
 
-        # 使用 SQLAgent 處理自然語言查詢
-        agent_result = sql_agent.run(natural_query)
-        print("Agent Result:", agent_result)
+        try:
+            # 建立 SQLAgent 實例，使用 sqlite:/// 格式的 URI 並傳遞 API Key
+            db_uri = f"sqlite:///{filepath}"
+            sql_agent = SQLAgent(db_uri, api_key=api_key)
 
-        # 如果有生成的SQL，執行它來獲取實際的查詢結果
-        sql_query_result = None
-        if agent_result.get("query") and agent_result.get("query") != "查無結果":
-            sql_query_result = execute_sql_query(filepath, agent_result.get("query"))
+            # 使用 SQLAgent 處理自然語言查詢
+            agent_result = sql_agent.run(natural_query)
+            print("Agent Result:", agent_result)
 
-        # 格式化回應
-        result = {
-            "success": True,
-            "generated_sql": agent_result.get("query", ""),
-            "natural_query": natural_query,
-            "generation": agent_result.get("generation", ""),
-            "sql_result": agent_result.get("result", ""),
-        }
+            # 如果有生成的SQL，執行它來獲取實際的查詢結果
+            sql_query_result = None
+            if agent_result.get("query") and agent_result.get("query") != "查無結果":
+                sql_query_result = execute_sql_query(
+                    filepath, agent_result.get("query")
+                )
 
-        # 如果有SQL查詢結果，添加表格資料
-        if sql_query_result and sql_query_result.get("success"):
-            result.update(
-                {
-                    "data": sql_query_result.get("data", []),
-                    "columns": sql_query_result.get("columns", []),
-                    "row_count": sql_query_result.get("row_count", 0),
-                }
-            )
-        else:
-            result.update({"data": [], "columns": [], "row_count": 0})
+            # 格式化回應
+            result = {
+                "success": True,
+                "generated_sql": agent_result.get("query", ""),
+                "natural_query": natural_query,
+                "generation": agent_result.get("generation", ""),
+                "sql_result": agent_result.get("result", ""),
+            }
 
-        return jsonify(result)
+            # 如果有SQL查詢結果，添加表格資料
+            if sql_query_result and sql_query_result.get("success"):
+                result.update(
+                    {
+                        "data": sql_query_result.get("data", []),
+                        "columns": sql_query_result.get("columns", []),
+                        "row_count": sql_query_result.get("row_count", 0),
+                    }
+                )
+            else:
+                result.update({"data": [], "columns": [], "row_count": 0})
+
+            return jsonify(result)
+
+        finally:
+            # 恢復原始的 API Key
+            if original_api_key:
+                os.environ["OPENAI_API_KEY"] = original_api_key
+            elif "OPENAI_API_KEY" in os.environ:
+                del os.environ["OPENAI_API_KEY"]
 
     except Exception as e:
         return jsonify(
