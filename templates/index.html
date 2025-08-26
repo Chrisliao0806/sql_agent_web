@@ -73,6 +73,25 @@
                         </button>
                     </div>
                 </form>
+                
+                <!-- 分隔線 -->
+                <div class="text-center my-4">
+                    <hr class="my-3">
+                    <span class="text-muted">或者</span>
+                    <hr class="my-3">
+                </div>
+                
+                <!-- 使用預設資料按鈕 -->
+                <div class="text-center">
+                    <a href="{{ url_for('use_default_data') }}" class="btn btn-outline-success btn-lg">
+                        <i class="fas fa-database me-2"></i>使用預設台灣空氣品質資料
+                    </a>
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            包含台灣各地空氣品質監測站的實時數據，包括 AQI、PM2.5、臭氧等指標
+                        </small>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

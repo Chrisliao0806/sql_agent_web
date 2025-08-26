@@ -511,6 +511,48 @@ def compare_queries(filename):
     return render_template("compare.html", filename=filename, table_info=table_info)
 
 
+@app.route("/use_default_data")
+def use_default_data():
+    """使用預設的台灣空氣品質資料"""
+    try:
+        # 預設資料的路徑
+        default_csv_path = os.path.join("default_data", "taiwan_air.csv")
+
+        if not os.path.exists(default_csv_path):
+            flash("預設資料文件不存在")
+            return redirect(url_for("index"))
+
+        # 生成對應的SQLite文件名（在uploads資料夾中）
+        db_filename = "taiwan_air_default.db"
+        db_filepath = os.path.join(app.config["UPLOAD_FOLDER"], db_filename)
+
+        # 如果SQLite文件已存在，直接使用
+        if os.path.exists(db_filepath):
+            table_info = get_table_info(db_filepath)
+            flash(f"已載入預設的台灣空氣品質資料，表格名稱: taiwan_air")
+            return render_template(
+                "database_info.html", filename=db_filename, table_info=table_info
+            )
+
+        # 轉換CSV為SQLite
+        success, result = convert_csv_to_sqlite(default_csv_path, db_filepath)
+
+        if success:
+            # 獲取資料庫資訊
+            table_info = get_table_info(db_filepath)
+            flash(f"已成功載入預設的台灣空氣品質資料，表格名稱: {result}")
+            return render_template(
+                "database_info.html", filename=db_filename, table_info=table_info
+            )
+        else:
+            flash(f"預設資料載入失敗: {result}")
+            return redirect(url_for("index"))
+
+    except Exception as e:
+        flash(f"載入預設資料時發生錯誤: {str(e)}")
+        return redirect(url_for("index"))
+
+
 @app.route("/api/sql_query", methods=["POST"])
 def api_sql_query():
     data = request.json
