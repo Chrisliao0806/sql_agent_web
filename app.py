@@ -253,7 +253,9 @@ def convert_csv_to_sqlite_chunked(csv_path, db_path, encoding):
             .replace(")", "_")
         )
         base_table_name = (
-            base_table_name.replace("[", "_").replace("]", "_").replace(".", "_")
+            base_table_name.replace("[", "_")
+            .replace("]", "_")
+            .replace(".", "_")
         )
 
         successful_tables = []
@@ -613,6 +615,50 @@ def api_validate_api_key():
     except Exception as e:
         return jsonify({"success": False, "error": f"驗證過程中發生錯誤: {str(e)}"})
 
+
+@app.route("/api/table_info", methods=["POST"])
+def api_table_info():
+    """獲取單個表格的詳細資訊"""
+    data = request.json
+    filename = data.get("filename")
+    table_name = data.get("table_name")
+    
+    if not filename or not table_name:
+        return jsonify({"success": False, "error": "缺少必要參數"})
+    
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if not os.path.exists(filepath):
+        return jsonify({"success": False, "error": "資料庫文件不存在"})
+    
+    try:
+        conn = sqlite3.connect(filepath)
+        cursor = conn.cursor()
+        
+        # 獲取表格結構
+        cursor.execute(f"PRAGMA table_info({table_name});")
+        columns = cursor.fetchall()
+        
+        # 獲取前5行數據作為示例
+        cursor.execute(f"SELECT * FROM {table_name} LIMIT 5;")
+        sample_data = cursor.fetchall()
+        
+        conn.close()
+        
+        table_info = {
+            "columns": columns,
+            "sample_data": sample_data
+        }
+        
+        return jsonify({
+            "success": True,
+            "table_info": table_info
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"獲取表格資訊失敗: {str(e)}"
+        })
 
 @app.route("/api/agent_query", methods=["POST"])
 def api_agent_query():
