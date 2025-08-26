@@ -253,9 +253,7 @@ def convert_csv_to_sqlite_chunked(csv_path, db_path, encoding):
             .replace(")", "_")
         )
         base_table_name = (
-            base_table_name.replace("[", "_")
-            .replace("]", "_")
-            .replace(".", "_")
+            base_table_name.replace("[", "_").replace("]", "_").replace(".", "_")
         )
 
         successful_tables = []
@@ -545,7 +543,9 @@ def api_validate_api_key():
 
             try:
                 # 創建測試用的 OpenAI LLM 實例
-                test_llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0, api_key=api_key)
+                test_llm = ChatOpenAI(
+                    model="gpt-4.1-nano", temperature=0, api_key=api_key
+                )
 
                 # 進行一個簡單的測試調用
                 _ = test_llm.invoke("Hello")
@@ -564,7 +564,10 @@ def api_validate_api_key():
                     return jsonify({"success": False, "error": "OpenAI API 配額已用盡"})
                 else:
                     return jsonify(
-                        {"success": False, "error": f"OpenAI API Key 驗證失敗: {error_msg}"}
+                        {
+                            "success": False,
+                            "error": f"OpenAI API Key 驗證失敗: {error_msg}",
+                        }
                     )
             finally:
                 # 恢復原始的 API Key
@@ -586,7 +589,9 @@ def api_validate_api_key():
                 _ = test_llm.invoke("Hello")
 
                 # 如果到這裡沒有拋出異常，說明 API Key 有效
-                return jsonify({"success": True, "message": "Google Gemini API Key 驗證成功"})
+                return jsonify(
+                    {"success": True, "message": "Google Gemini API Key 驗證成功"}
+                )
 
             except Exception as e:
                 error_msg = str(e)
@@ -600,7 +605,10 @@ def api_validate_api_key():
                     return jsonify({"success": False, "error": "Google API 配額已用盡"})
                 else:
                     return jsonify(
-                        {"success": False, "error": f"Google API Key 驗證失敗: {error_msg}"}
+                        {
+                            "success": False,
+                            "error": f"Google API Key 驗證失敗: {error_msg}",
+                        }
                     )
             finally:
                 # 恢復原始的 API Key
@@ -622,43 +630,35 @@ def api_table_info():
     data = request.json
     filename = data.get("filename")
     table_name = data.get("table_name")
-    
+
     if not filename or not table_name:
         return jsonify({"success": False, "error": "缺少必要參數"})
-    
+
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     if not os.path.exists(filepath):
         return jsonify({"success": False, "error": "資料庫文件不存在"})
-    
+
     try:
         conn = sqlite3.connect(filepath)
         cursor = conn.cursor()
-        
+
         # 獲取表格結構
         cursor.execute(f"PRAGMA table_info({table_name});")
         columns = cursor.fetchall()
-        
+
         # 獲取前5行數據作為示例
         cursor.execute(f"SELECT * FROM {table_name} LIMIT 5;")
         sample_data = cursor.fetchall()
-        
+
         conn.close()
-        
-        table_info = {
-            "columns": columns,
-            "sample_data": sample_data
-        }
-        
-        return jsonify({
-            "success": True,
-            "table_info": table_info
-        })
-        
+
+        table_info = {"columns": columns, "sample_data": sample_data}
+
+        return jsonify({"success": True, "table_info": table_info})
+
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": f"獲取表格資訊失敗: {str(e)}"
-        })
+        return jsonify({"success": False, "error": f"獲取表格資訊失敗: {str(e)}"})
+
 
 @app.route("/api/agent_query", methods=["POST"])
 def api_agent_query():
