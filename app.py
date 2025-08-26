@@ -5,6 +5,7 @@ import pandas as pd
 from werkzeug.utils import secure_filename
 from services.sql_agent import SQLAgent
 from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here")
@@ -526,47 +527,88 @@ def api_sql_query():
 
 @app.route("/api/validate_api_key", methods=["POST"])
 def api_validate_api_key():
-    """驗證 OpenAI API Key 是否有效"""
+    """驗證 OpenAI 或 Google API Key 是否有效"""
     try:
         data = request.json
         api_key = data.get("api_key")
+        model_type = data.get("model_type", "openai")  # 默認使用 OpenAI
 
         if not api_key:
             return jsonify({"success": False, "error": "請提供 API Key"})
 
         # 暫時設置環境變量以測試 API Key
-        original_api_key = os.environ.get("OPENAI_API_KEY")
-        os.environ["OPENAI_API_KEY"] = api_key
+        if model_type == "openai":
+            original_api_key = os.environ.get("OPENAI_API_KEY")
+            os.environ["OPENAI_API_KEY"] = api_key
 
-        try:
-            # 創建測試用的 LLM 實例
-            test_llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0)
+            try:
+                # 創建測試用的 OpenAI LLM 實例
+                test_llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0, api_key=api_key)
 
-            # 進行一個簡單的測試調用
-            test_response = test_llm.invoke("Hello")
+                # 進行一個簡單的測試調用
+                _ = test_llm.invoke("Hello")
 
-            # 如果到這裡沒有拋出異常，說明 API Key 有效
-            return jsonify({"success": True, "message": "API Key 驗證成功"})
+                # 如果到這裡沒有拋出異常，說明 API Key 有效
+                return jsonify({"success": True, "message": "OpenAI API Key 驗證成功"})
 
-        except Exception as e:
-            error_msg = str(e)
-            if (
-                "invalid api key" in error_msg.lower()
-                or "unauthorized" in error_msg.lower()
-            ):
-                return jsonify({"success": False, "error": "API Key 無效"})
-            elif "quota" in error_msg.lower():
-                return jsonify({"success": False, "error": "API 配額已用盡"})
-            else:
-                return jsonify(
-                    {"success": False, "error": f"API Key 驗證失敗: {error_msg}"}
+            except Exception as e:
+                error_msg = str(e)
+                if (
+                    "invalid api key" in error_msg.lower()
+                    or "unauthorized" in error_msg.lower()
+                ):
+                    return jsonify({"success": False, "error": "OpenAI API Key 無效"})
+                elif "quota" in error_msg.lower():
+                    return jsonify({"success": False, "error": "OpenAI API 配額已用盡"})
+                else:
+                    return jsonify(
+                        {"success": False, "error": f"OpenAI API Key 驗證失敗: {error_msg}"}
+                    )
+            finally:
+                # 恢復原始的 API Key
+                if original_api_key:
+                    os.environ["OPENAI_API_KEY"] = original_api_key
+                elif "OPENAI_API_KEY" in os.environ:
+                    del os.environ["OPENAI_API_KEY"]
+
+        elif model_type == "gemini":
+            original_api_key = os.environ.get("GOOGLE_API_KEY")
+            os.environ["GOOGLE_API_KEY"] = api_key
+
+            try:
+                test_llm = ChatGoogleGenerativeAI(
+                    model="gemini-2.5-flash", temperature=0, google_api_key=api_key
                 )
-        finally:
-            # 恢復原始的 API Key
-            if original_api_key:
-                os.environ["OPENAI_API_KEY"] = original_api_key
-            elif "OPENAI_API_KEY" in os.environ:
-                del os.environ["OPENAI_API_KEY"]
+
+                # 進行一個簡單的測試調用
+                _ = test_llm.invoke("Hello")
+
+                # 如果到這裡沒有拋出異常，說明 API Key 有效
+                return jsonify({"success": True, "message": "Google Gemini API Key 驗證成功"})
+
+            except Exception as e:
+                error_msg = str(e)
+                if (
+                    "invalid api key" in error_msg.lower()
+                    or "unauthorized" in error_msg.lower()
+                    or "api key not valid" in error_msg.lower()
+                ):
+                    return jsonify({"success": False, "error": "Google API Key 無效"})
+                elif "quota" in error_msg.lower():
+                    return jsonify({"success": False, "error": "Google API 配額已用盡"})
+                else:
+                    return jsonify(
+                        {"success": False, "error": f"Google API Key 驗證失敗: {error_msg}"}
+                    )
+            finally:
+                # 恢復原始的 API Key
+                if original_api_key:
+                    os.environ["GOOGLE_API_KEY"] = original_api_key
+                elif "GOOGLE_API_KEY" in os.environ:
+                    del os.environ["GOOGLE_API_KEY"]
+
+        else:
+            return jsonify({"success": False, "error": "不支持的模型類型"})
 
     except Exception as e:
         return jsonify({"success": False, "error": f"驗證過程中發生錯誤: {str(e)}"})
@@ -577,24 +619,29 @@ def api_agent_query():
     data = request.json
     filename = data.get("filename")
     natural_query = data.get("query")
-    api_key = data.get("api_key")  # 從前端獲取 API Key
+    api_key = data.get("api_key")
+    model_type = data.get("model_type", "openai")  # 添加模型類型參數
 
     if not api_key:
-        return jsonify({"success": False, "error": "請提供 OpenAI API Key"})
+        return jsonify({"success": False, "error": "請提供 API Key"})
 
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     if not os.path.exists(filepath):
         return jsonify({"success": False, "error": "資料庫文件不存在"})
 
     try:
-        # 暫時設置環境變量
-        original_api_key = os.environ.get("OPENAI_API_KEY")
-        os.environ["OPENAI_API_KEY"] = api_key
+        # 根據模型類型設置環境變量
+        if model_type == "openai":
+            original_api_key = os.environ.get("OPENAI_API_KEY")
+            os.environ["OPENAI_API_KEY"] = api_key
+        elif model_type == "gemini":
+            original_api_key = os.environ.get("GOOGLE_API_KEY")
+            os.environ["GOOGLE_API_KEY"] = api_key
 
         try:
-            # 建立 SQLAgent 實例，使用 sqlite:/// 格式的 URI 並傳遞 API Key
+            # 建立 SQLAgent 實例，傳遞模型類型和 API Key
             db_uri = f"sqlite:///{filepath}"
-            sql_agent = SQLAgent(db_uri, api_key=api_key)
+            sql_agent = SQLAgent(db_uri, api_key=api_key, model_type=model_type)
 
             # 使用 SQLAgent 處理自然語言查詢
             agent_result = sql_agent.run(natural_query)
@@ -614,6 +661,7 @@ def api_agent_query():
                 "natural_query": natural_query,
                 "generation": agent_result.get("generation", ""),
                 "sql_result": agent_result.get("result", ""),
+                "model_type": model_type,
             }
 
             # 如果有SQL查詢結果，添加表格資料
@@ -632,10 +680,16 @@ def api_agent_query():
 
         finally:
             # 恢復原始的 API Key
-            if original_api_key:
-                os.environ["OPENAI_API_KEY"] = original_api_key
-            elif "OPENAI_API_KEY" in os.environ:
-                del os.environ["OPENAI_API_KEY"]
+            if model_type == "openai":
+                if original_api_key:
+                    os.environ["OPENAI_API_KEY"] = original_api_key
+                elif "OPENAI_API_KEY" in os.environ:
+                    del os.environ["OPENAI_API_KEY"]
+            elif model_type == "gemini":
+                if original_api_key:
+                    os.environ["GOOGLE_API_KEY"] = original_api_key
+                elif "GOOGLE_API_KEY" in os.environ:
+                    del os.environ["GOOGLE_API_KEY"]
 
     except Exception as e:
         return jsonify(

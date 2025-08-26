@@ -114,13 +114,46 @@
     <div class="col-12">
         <div class="api-key-section">
             <h5 class="mb-3 text-success">
-                <i class="fas fa-key me-2"></i>OpenAI API 設定
+                <i class="fas fa-key me-2"></i>AI 模型設定
             </h5>
+            
+            <!-- 模型選擇 -->
+            <div class="row mb-3">
+                <div class="col-12">
+                    <label class="form-label">
+                        <strong>選擇 AI 模型：</strong>
+                    </label>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="modelType" id="openaiModel" value="openai" checked>
+                                <label class="form-check-label" for="openaiModel">
+                                    <i class="fas fa-brain me-2 text-primary"></i>
+                                    <strong>OpenAI GPT-4.1-nano</strong>
+                                    <small class="d-block text-muted">需要 OpenAI API Key (sk-...)</small>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="modelType" id="geminiModel" value="gemini">
+                                <label class="form-check-label" for="geminiModel">
+                                    <i class="fas fa-robot me-2 text-info"></i>
+                                    <strong>Google Gemini-2.5-flash</strong>
+                                    <small class="d-block text-muted">需要 Google AI API Key</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- API Key 輸入 -->
             <div class="row align-items-end">
                 <div class="col-md-8">
                     <label for="openaiApiKey" class="form-label">
-                        <strong>OpenAI API Key：</strong>
-                        <small class="text-muted">(用於 AI SQL Agent 功能)</small>
+                        <strong id="apiKeyLabel">OpenAI API Key：</strong>
+                        <small class="text-muted" id="apiKeyDescription">(用於 GPT-4.1-nano 模型)</small>
                     </label>
                     <input 
                         type="password" 
@@ -141,9 +174,9 @@
                 </div>
             </div>
             <div class="mt-3">
-                <small class="text-muted">
+                <small class="text-muted" id="apiKeyHelp">
                     <i class="fas fa-info-circle me-1"></i>
-                    您的 API Key 僅在本次會話中使用，不會被保存到伺服器。如需獲取 API Key，請前往 
+                    您的 API Key 僅在本次會話中使用，不會被保存到伺服器。如需獲取 OpenAI API Key，請前往 
                     <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI 平台</a>
                 </small>
             </div>
@@ -220,9 +253,9 @@
     <!-- AI SQL Agent 查詢 -->
     <div class="col-lg-6 mb-4">
         <div class="agent-section">
-            <h4 class="mb-3">
+            <h4 class="mb-3" id="agentSectionTitle">
                 <i class="fas fa-robot me-2"></i>AI SQL Agent
-                <small class="text-muted">(需要 OpenAI API Key)</small>
+                <small class="text-muted" id="agentSectionSubtitle">(需要 API Key)</small>
             </h4>
             <form id="agentQueryForm">
                 <div class="mb-3">
@@ -231,10 +264,10 @@
                         class="form-control query-input" 
                         id="naturalQuery" 
                         rows="4" 
-                        placeholder="請先設定並驗證 OpenAI API Key 以啟用此功能"
+                        placeholder="請先設定並驗證 API Key 以啟用此功能"
                         disabled
                     ></textarea>
-                    <small class="text-muted">請先設定 OpenAI API Key 以啟用此功能</small>
+                    <small class="text-muted" id="naturalQueryHelp">請先設定 API Key 以啟用此功能</small>
                 </div>
                 <button type="submit" class="btn btn-light btn-lg w-100" disabled id="agentQueryBtn">
                     <i class="fas fa-magic me-2"></i>AI 智能查詢 (需要 API Key)
@@ -306,306 +339,451 @@ let sqlResults = null;
 let agentResults = null;
 let currentApiKey = null;
 
+// 全域變數，確保 DOM 元素能被找到
+let apiKeyInput, validateBtn, clearBtn, naturalQueryInput, agentQueryBtn, apiKeyStatus;
+let openaiRadio, geminiRadio, apiKeyLabel, apiKeyDescription, apiKeyHelp, naturalQueryHelp;
+
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing...');
+    
+    // 初始化所有元素
+    initializeElements();
+    
+    // 設置事件監聽器
+    setupEventListeners();
+    
+    // 初始化預設狀態
+    updateUIForModel('openai');
+});
+
+function initializeElements() {
     // API Key 相關元素
-    const apiKeyInput = document.getElementById('openaiApiKey');
-    const validateBtn = document.getElementById('validateApiKey');
-    const clearBtn = document.getElementById('clearApiKey');
-    const naturalQueryInput = document.getElementById('naturalQuery');
-    const agentQueryBtn = document.getElementById('agentQueryBtn');
-    const apiKeyStatus = document.getElementById('apiKeyStatus');
-
-    // Modal 相關元素
-    const modalEl = document.getElementById('tableInfoModal');
-    const tableInfoModal = new bootstrap.Modal(modalEl);
-
-    // API Key 狀態顯示函數
-    function showApiKeyStatus(message, type) {
-        if (!message) {
-            apiKeyStatus.innerHTML = '';
-            return;
+    apiKeyInput = document.getElementById('openaiApiKey');
+    validateBtn = document.getElementById('validateApiKey');
+    clearBtn = document.getElementById('clearApiKey');
+    naturalQueryInput = document.getElementById('naturalQuery');
+    agentQueryBtn = document.getElementById('agentQueryBtn');
+    apiKeyStatus = document.getElementById('apiKeyStatus');
+    
+    // 模型選擇相關元素
+    openaiRadio = document.getElementById('openaiModel');
+    geminiRadio = document.getElementById('geminiModel');
+    apiKeyLabel = document.getElementById('apiKeyLabel');
+    apiKeyDescription = document.getElementById('apiKeyDescription');
+    apiKeyHelp = document.getElementById('apiKeyHelp');
+    naturalQueryHelp = document.getElementById('naturalQueryHelp');
+    
+    // 檢查元素是否存在
+    const elements = {
+        apiKeyInput, validateBtn, clearBtn, naturalQueryInput, agentQueryBtn,
+        openaiRadio, geminiRadio, apiKeyLabel, apiKeyDescription, apiKeyHelp
+    };
+    
+    for (const [name, element] of Object.entries(elements)) {
+        if (!element) {
+            console.error(`Element not found: ${name}`);
         }
+    }
+}
 
-        let className = '';
-        let icon = '';
+function setupEventListeners() {
+    console.log('Setting up event listeners...');
+    
+    // 模型選擇變化監聽
+    if (openaiRadio) {
+        openaiRadio.addEventListener('change', function() {
+            console.log('OpenAI radio changed');
+            if (this.checked) {
+                updateUIForModel('openai');
+            }
+        });
+    }
+    
+    if (geminiRadio) {
+        geminiRadio.addEventListener('change', function() {
+            console.log('Gemini radio changed');
+            if (this.checked) {
+                updateUIForModel('gemini');
+            }
+        });
+    }
+    
+    // API Key 驗證按鈕
+    if (validateBtn) {
+        validateBtn.addEventListener('click', handleValidateApiKey);
+    }
+    
+    // 清除按鈕
+    if (clearBtn) {
+        clearBtn.addEventListener('click', handleClearApiKey);
+    }
+    
+    // API Key 輸入變化
+    if (apiKeyInput) {
+        apiKeyInput.addEventListener('input', handleApiKeyInput);
+    }
+    
+    // Agent 查詢表單
+    const agentForm = document.getElementById('agentQueryForm');
+    if (agentForm) {
+        agentForm.addEventListener('submit', handleAgentQuery);
+    }
+    
+    // SQL 查詢表單
+    const sqlForm = document.getElementById('sqlQueryForm');
+    if (sqlForm) {
+        sqlForm.addEventListener('submit', handleSqlQuery);
+    }
+}
+
+function updateUIForModel(modelType) {
+    console.log('Updating UI for model:', modelType);
+    
+    if (modelType === 'gemini') {
+        // 更新 API Key 相關文字
+        if (apiKeyLabel) apiKeyLabel.textContent = 'Google AI API Key：';
+        if (apiKeyDescription) apiKeyDescription.textContent = '(用於 Gemini-2.5-flash 模型)';
+        if (apiKeyInput) apiKeyInput.placeholder = '請輸入您的 Google AI API Key';
         
-        switch(type) {
-            case 'success':
-                className = 'text-success';
-                icon = 'fas fa-check-circle';
-                break;
-            case 'error':
-                className = 'text-danger';
-                icon = 'fas fa-times-circle';
-                break;
-            case 'warning':
-                className = 'text-warning';
-                icon = 'fas fa-exclamation-triangle';
-                break;
+        if (apiKeyHelp) {
+            apiKeyHelp.innerHTML = `
+                <i class="fas fa-info-circle me-1"></i>
+                您的 API Key 僅在本次會話中使用，不會被保存到伺服器。如需獲取 Google AI API Key，請前往 
+                <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>
+            `;
         }
+        
+        // 更新 AI Agent 相關文字
+        updateAgentSection('Google AI API Key');
+        
+    } else {
+        // OpenAI 模型
+        if (apiKeyLabel) apiKeyLabel.textContent = 'OpenAI API Key：';
+        if (apiKeyDescription) apiKeyDescription.textContent = '(用於 GPT-4.1-nano 模型)';
+        if (apiKeyInput) apiKeyInput.placeholder = '請輸入您的 OpenAI API Key (sk-...)';
+        
+        if (apiKeyHelp) {
+            apiKeyHelp.innerHTML = `
+                <i class="fas fa-info-circle me-1"></i>
+                您的 API Key 僅在本次會話中使用，不會被保存到伺服器。如需獲取 OpenAI API Key，請前往 
+                <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI 平台</a>
+            `;
+        }
+        
+        // 更新 AI Agent 相關文字
+        updateAgentSection('OpenAI API Key');
+    }
+    
+    // 清除當前狀態
+    if (apiKeyInput) apiKeyInput.value = '';
+    currentApiKey = null;
+    showApiKeyStatus('', '');
+    disableAgentQuery();
+}
 
-        apiKeyStatus.innerHTML = `<i class="${icon} me-1"></i>${message}`;
-        apiKeyStatus.className = `api-status ${className}`;
+function updateAgentSection(keyType) {
+    const agentTitle = document.getElementById('agentSectionTitle');
+    
+    if (agentTitle) {
+        agentTitle.innerHTML = `
+            <i class="fas fa-robot me-2"></i>AI SQL Agent
+            <small class="text-muted">(需要 ${keyType})</small>
+        `;
+    }
+    
+    if (naturalQueryInput) {
+        naturalQueryInput.placeholder = `請先設定並驗證 ${keyType} 以啟用此功能`;
+    }
+    
+    if (naturalQueryHelp) {
+        naturalQueryHelp.textContent = `請先設定 ${keyType} 以啟用此功能`;
+    }
+    
+    if (agentQueryBtn) {
+        agentQueryBtn.innerHTML = `<i class="fas fa-magic me-2"></i>AI 智能查詢 (需要 ${keyType})`;
+    }
+}
+
+function getCurrentModelType() {
+    const checkedRadio = document.querySelector('input[name="modelType"]:checked');
+    return checkedRadio ? checkedRadio.value : 'openai';
+}
+
+function showApiKeyStatus(message, type) {
+    if (!apiKeyStatus) return;
+    
+    if (!message) {
+        apiKeyStatus.innerHTML = '';
+        return;
     }
 
-    // 啟用 Agent 查詢
-    function enableAgentQuery() {
+    let className = '';
+    let icon = '';
+    
+    switch(type) {
+        case 'success':
+            className = 'text-success';
+            icon = 'fas fa-check-circle';
+            break;
+        case 'error':
+            className = 'text-danger';
+            icon = 'fas fa-times-circle';
+            break;
+        case 'warning':
+            className = 'text-warning';
+            icon = 'fas fa-exclamation-triangle';
+            break;
+    }
+
+    apiKeyStatus.innerHTML = `<i class="${icon} me-1"></i>${message}`;
+    apiKeyStatus.className = `api-status ${className}`;
+}
+
+function enableAgentQuery() {
+    if (naturalQueryInput) {
         naturalQueryInput.disabled = false;
         naturalQueryInput.placeholder = '請用自然語言描述您的查詢需求，例如：\n顯示所有資料\n有多少筆資料？\n找出最大值';
+    }
+    
+    if (agentQueryBtn) {
         agentQueryBtn.disabled = false;
-        agentQueryBtn.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
-        
-        const smallText = naturalQueryInput.parentElement.querySelector('small');
-        smallText.textContent = '使用 AI 將自然語言轉換為 SQL 查詢';
-        smallText.className = 'text-success';
+        agentQueryBtn.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢';
     }
+    
+    if (naturalQueryHelp) {
+        naturalQueryHelp.textContent = '使用 AI 將自然語言轉換為 SQL 查詢';
+        naturalQueryHelp.className = 'text-success';
+    }
+}
 
-    // 禁用 Agent 查詢
-    function disableAgentQuery() {
+function disableAgentQuery() {
+    const modelType = getCurrentModelType();
+    const keyType = modelType === 'gemini' ? 'Google AI API Key' : 'OpenAI API Key';
+    
+    if (naturalQueryInput) {
         naturalQueryInput.disabled = true;
-        naturalQueryInput.placeholder = '請先設定並驗證 OpenAI API Key 以啟用此功能';
+        naturalQueryInput.placeholder = `請先設定並驗證 ${keyType} 以啟用此功能`;
+    }
+    
+    if (agentQueryBtn) {
         agentQueryBtn.disabled = true;
-        agentQueryBtn.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢 (需要 API Key)<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
-        
-        const smallText = naturalQueryInput.parentElement.querySelector('small');
-        smallText.textContent = '請先設定 OpenAI API Key 以啟用此功能';
-        smallText.className = 'text-muted';
+        agentQueryBtn.innerHTML = `<i class="fas fa-magic me-2"></i>AI 智能查詢 (需要 ${keyType})`;
+    }
+    
+    if (naturalQueryHelp) {
+        naturalQueryHelp.textContent = `請先設定 ${keyType} 以啟用此功能`;
+        naturalQueryHelp.className = 'text-muted';
+    }
+}
+
+async function handleValidateApiKey() {
+    console.log('Validate button clicked');
+    
+    const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+    const modelType = getCurrentModelType();
+    
+    if (!apiKey) {
+        showApiKeyStatus('請輸入 API Key', 'error');
+        return;
     }
 
-    // 驗證 API Key
-    validateBtn.addEventListener('click', async function() {
-        const apiKey = apiKeyInput.value.trim();
-        
-        if (!apiKey) {
-            showApiKeyStatus('請輸入 API Key', 'error');
-            return;
-        }
+    // 格式驗證
+    if (modelType === 'openai' && !apiKey.startsWith('sk-')) {
+        showApiKeyStatus('OpenAI API Key 格式不正確，應以 sk- 開頭', 'error');
+        return;
+    }
 
-        if (!apiKey.startsWith('sk-')) {
-            showApiKeyStatus('API Key 格式不正確，應以 sk- 開頭', 'error');
-            return;
-        }
-
+    if (validateBtn) {
         validateBtn.disabled = true;
         validateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>驗證中...';
+    }
 
-        try {
-            const response = await fetch('/api/validate_api_key', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    api_key: apiKey
-                })
-            });
+    try {
+        console.log('Sending validation request...');
+        
+        const response = await fetch('/api/validate_api_key', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                api_key: apiKey,
+                model_type: modelType
+            })
+        });
 
-            const data = await response.json();
+        const data = await response.json();
+        console.log('Validation response:', data);
 
-            if (data.success) {
-                currentApiKey = apiKey;
-                showApiKeyStatus('API Key 驗證成功！', 'success');
-                enableAgentQuery();
-            } else {
-                showApiKeyStatus('API Key 驗證失敗：' + data.error, 'error');
-                disableAgentQuery();
-            }
-
-        } catch (error) {
-            showApiKeyStatus('驗證失敗：網路錯誤', 'error');
+        if (data.success) {
+            currentApiKey = apiKey;
+            showApiKeyStatus(data.message || 'API Key 驗證成功！', 'success');
+            enableAgentQuery();
+        } else {
+            showApiKeyStatus('API Key 驗證失敗：' + data.error, 'error');
             disableAgentQuery();
-        } finally {
+        }
+
+    } catch (error) {
+        console.error('Validation error:', error);
+        showApiKeyStatus('驗證失敗：網路錯誤', 'error');
+        disableAgentQuery();
+    } finally {
+        if (validateBtn) {
             validateBtn.disabled = false;
             validateBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i>驗證 API Key';
         }
-    });
+    }
+}
 
-    // 清除 API Key
-    clearBtn.addEventListener('click', function() {
-        apiKeyInput.value = '';
+function handleClearApiKey() {
+    if (apiKeyInput) apiKeyInput.value = '';
+    currentApiKey = null;
+    showApiKeyStatus('', '');
+    disableAgentQuery();
+}
+
+function handleApiKeyInput() {
+    if (currentApiKey && apiKeyInput && apiKeyInput.value.trim() !== currentApiKey) {
         currentApiKey = null;
-        showApiKeyStatus('', '');
         disableAgentQuery();
-    });
+        showApiKeyStatus('API Key 已變更，請重新驗證', 'warning');
+    }
+}
 
-    // API Key 輸入變化時重置狀態
-    apiKeyInput.addEventListener('input', function() {
-        if (currentApiKey && this.value.trim() !== currentApiKey) {
-            currentApiKey = null;
-            disableAgentQuery();
-            showApiKeyStatus('API Key 已變更，請重新驗證', 'warning');
-        }
-    });
+async function handleAgentQuery(e) {
+    e.preventDefault();
+    console.log('Agent query submitted');
+    
+    const query = naturalQueryInput ? naturalQueryInput.value.trim() : '';
+    const modelType = getCurrentModelType();
+    
+    if (!query) {
+        alert('請輸入自然語言查詢');
+        return;
+    }
 
-    // 表格卡片點擊事件
-    const tableCards = document.querySelectorAll('.table-card');
-    tableCards.forEach(card => {
-        card.addEventListener('click', function() {
-            const tableName = this.dataset.table;
-            showTableInfo(tableName, tableInfoModal);
+    if (!currentApiKey) {
+        alert('請先設定並驗證 API Key');
+        return;
+    }
+    
+    const resultDiv = document.getElementById('agentResult');
+    
+    if (agentQueryBtn) {
+        agentQueryBtn.disabled = true;
+        agentQueryBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>AI 查詢中...';
+    }
+    
+    try {
+        const startTime = performance.now();
+        
+        const response = await fetch('/api/agent_query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                filename: filename,
+                query: query,
+                api_key: currentApiKey,
+                model_type: modelType
+            })
         });
-    });
-
-    // 使用表格按鈕
-    document.getElementById('useTableBtn').addEventListener('click', function() {
-        const tableName = modalEl.getAttribute('data-current-table');
-        const sqlQuery = document.getElementById('sqlQuery');
         
-        if (tableName) {
-            sqlQuery.value = `SELECT * FROM ${tableName} LIMIT 10;`;
-            sqlQuery.focus();
-            tableInfoModal.hide();
-            
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
-            alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-            alertDiv.innerHTML = `
-                <i class="fas fa-check-circle me-2"></i>
-                已將 ${tableName} 的查詢語句插入到SQL查詢框
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            `;
-            document.body.appendChild(alertDiv);
-            
-            setTimeout(() => {
-                if (alertDiv) {
-                    const bsAlert = bootstrap.Alert.getOrCreateInstance(alertDiv);
-                    if (bsAlert) {
-                        bsAlert.close();
-                    }
-                }
-            }, 3000);
-        }
-    });
-
-    // SQL 查詢表單提交
-    document.getElementById('sqlQueryForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
+        const endTime = performance.now();
         
-        const query = document.getElementById('sqlQuery').value.trim();
-        if (!query) {
-            alert('請輸入 SQL 查詢語句');
-            return;
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
-        const button = this.querySelector('button[type="submit"]');
-        const spinner = button.querySelector('.loading-spinner');
-        const resultDiv = document.getElementById('sqlResult');
+        const data = await response.json();
+        data.executionTime = (endTime - startTime).toFixed(2);
         
-        // 顯示載入狀態
-        button.disabled = true;
-        spinner.style.display = 'inline-block';
+        agentResults = data;
+        displayAgentResult(data, resultDiv);
+        updateComparison();
         
-        try {
-            const startTime = performance.now();
-            
-            const response = await fetch('/api/sql_query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    filename: filename,
-                    query: query
-                })
-            });
-            
-            const endTime = performance.now();
-            const data = await response.json();
-            data.executionTime = (endTime - startTime).toFixed(2);
-            
-            sqlResults = data;
-            displaySQLResult(data, resultDiv);
-            updateComparison();
-            
-        } catch (error) {
+    } catch (error) {
+        console.error('Agent query error:', error);
+        if (resultDiv) {
             resultDiv.innerHTML = `
                 <div class="error-message">
                     <i class="fas fa-exclamation-triangle me-2"></i>
                     查詢執行失敗：${error.message}
                 </div>
             `;
-        } finally {
-            button.disabled = false;
-            spinner.style.display = 'none';
         }
-    });
+    } finally {
+        if (agentQueryBtn) {
+            agentQueryBtn.disabled = false;
+            agentQueryBtn.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢';
+        }
+    }
+}
 
-    // Agent 查詢表單提交
-    document.getElementById('agentQueryForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        console.log('Agent query form submitted');
-        
-        const query = document.getElementById('naturalQuery').value.trim();
-        if (!query) {
-            alert('請輸入自然語言查詢');
-            return;
-        }
-
-        if (!currentApiKey) {
-            alert('請先設定並驗證 OpenAI API Key');
-            return;
-        }
-        
-        const button = this.querySelector('button[type="submit"]');
-        const spinner = button.querySelector('.loading-spinner');
-        const resultDiv = document.getElementById('agentResult');
-        
-        console.log('Starting agent query...', { query, hasApiKey: !!currentApiKey });
-        
-        // 顯示載入狀態
+async function handleSqlQuery(e) {
+    e.preventDefault();
+    
+    const query = document.getElementById('sqlQuery').value.trim();
+    if (!query) {
+        alert('請輸入 SQL 查詢語句');
+        return;
+    }
+    
+    const button = e.target.querySelector('button[type="submit"]');
+    const spinner = button ? button.querySelector('.loading-spinner') : null;
+    const resultDiv = document.getElementById('sqlResult');
+    
+    if (button) {
         button.disabled = true;
-        spinner.style.display = 'inline-block';
-        button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>AI 查詢中...<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
+        if (spinner) spinner.style.display = 'inline-block';
+    }
+    
+    try {
+        const startTime = performance.now();
         
-        try {
-            const startTime = performance.now();
-            
-            const response = await fetch('/api/agent_query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    filename: filename,
-                    query: query,
-                    api_key: currentApiKey
-                })
-            });
-            
-            const endTime = performance.now();
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            data.executionTime = (endTime - startTime).toFixed(2);
-            
-            console.log('Agent query response:', data);
-            
-            agentResults = data;
-            displayAgentResult(data, resultDiv);
-            updateComparison();
-            
-        } catch (error) {
-            console.error('Agent query error:', error);
+        const response = await fetch('/api/sql_query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                filename: filename,
+                query: query
+            })
+        });
+        
+        const endTime = performance.now();
+        const data = await response.json();
+        data.executionTime = (endTime - startTime).toFixed(2);
+        
+        sqlResults = data;
+        displaySQLResult(data, resultDiv);
+        updateComparison();
+        
+    } catch (error) {
+        if (resultDiv) {
             resultDiv.innerHTML = `
                 <div class="error-message">
                     <i class="fas fa-exclamation-triangle me-2"></i>
                     查詢執行失敗：${error.message}
                 </div>
             `;
-        } finally {
-            button.disabled = false;
-            spinner.style.display = 'none';
-            button.innerHTML = '<i class="fas fa-magic me-2"></i>AI 智能查詢<div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status"></div>';
         }
-    });
-});
+    } finally {
+        if (button) {
+            button.disabled = false;
+            if (spinner) spinner.style.display = 'none';
+        }
+    }
+}
 
-// 結果顯示函數
+// ...existing code... (保留其他函數如 displaySQLResult, displayAgentResult 等)
+
 function displaySQLResult(data, container) {
+    if (!container) return;
+    
     if (data.success) {
         let html = `
             <div class="success-message">
@@ -618,7 +796,6 @@ function displaySQLResult(data, container) {
             html += '<div class="result-container">';
             html += '<table class="table table-striped table-hover">';
             
-            // 表頭
             if (data.columns && data.columns.length > 0) {
                 html += '<thead><tr>';
                 data.columns.forEach(col => {
@@ -627,7 +804,6 @@ function displaySQLResult(data, container) {
                 html += '</tr></thead>';
             }
             
-            // 數據行
             html += '<tbody>';
             data.data.forEach(row => {
                 html += '<tr>';
@@ -657,6 +833,8 @@ function displaySQLResult(data, container) {
 }
 
 function displayAgentResult(data, container) {
+    if (!container) return;
+    
     let html = '';
     
     if (data.generated_sql) {
@@ -676,7 +854,6 @@ function displayAgentResult(data, container) {
             </div>
         `;
         
-        // 顯示 AI 生成的答案
         if (data.generation) {
             html += `
                 <div class="alert alert-info">
@@ -690,7 +867,6 @@ function displayAgentResult(data, container) {
             html += '<div class="result-container">';
             html += '<table class="table table-striped table-hover">';
             
-            // 表頭
             if (data.columns && data.columns.length > 0) {
                 html += '<thead><tr>';
                 data.columns.forEach(col => {
@@ -699,7 +875,6 @@ function displayAgentResult(data, container) {
                 html += '</tr></thead>';
             }
             
-            // 數據行
             html += '<tbody>';
             data.data.forEach(row => {
                 html += '<tr>';
@@ -736,146 +911,30 @@ function updateComparison() {
         const sqlStats = document.getElementById('sqlStats');
         const agentStats = document.getElementById('agentStats');
         
-        // SQL 統計
-        sqlStats.innerHTML = `
-            <ul class="list-unstyled">
-                <li><strong>執行時間：</strong> ${sqlResults.executionTime}ms</li>
-                <li><strong>結果數量：</strong> ${sqlResults.success ? sqlResults.row_count || 0 : 0} 筆</li>
-                <li><strong>狀態：</strong> ${sqlResults.success ? '<span class="badge bg-success">成功</span>' : '<span class="badge bg-danger">失敗</span>'}</li>
-            </ul>
-        `;
+        if (sqlStats) {
+            sqlStats.innerHTML = `
+                <ul class="list-unstyled">
+                    <li><strong>執行時間：</strong> ${sqlResults.executionTime}ms</li>
+                    <li><strong>結果數量：</strong> ${sqlResults.success ? sqlResults.row_count || 0 : 0} 筆</li>
+                    <li><strong>狀態：</strong> ${sqlResults.success ? '<span class="badge bg-success">成功</span>' : '<span class="badge bg-danger">失敗</span>'}</li>
+                </ul>
+            `;
+        }
         
-        // Agent 統計
-        agentStats.innerHTML = `
-            <ul class="list-unstyled">
-                <li><strong>執行時間：</strong> ${agentResults.executionTime}ms</li>
-                <li><strong>結果數量：</strong> ${agentResults.success ? agentResults.row_count || 0 : 0} 筆</li>
-                <li><strong>狀態：</strong> ${agentResults.success ? '<span class="badge bg-success">成功</span>' : '<span class="badge bg-danger">失敗</span>'}</li>
-                <li><strong>生成 SQL：</strong> ${agentResults.generated_sql ? '是' : '否'}</li>
-            </ul>
-        `;
+        if (agentStats) {
+            agentStats.innerHTML = `
+                <ul class="list-unstyled">
+                    <li><strong>執行時間：</strong> ${agentResults.executionTime}ms</li>
+                    <li><strong>結果數量：</strong> ${agentResults.success ? agentResults.row_count || 0 : 0} 筆</li>
+                    <li><strong>狀態：</strong> ${agentResults.success ? '<span class="badge bg-success">成功</span>' : '<span class="badge bg-danger">失敗</span>'}</li>
+                    <li><strong>生成 SQL：</strong> ${agentResults.generated_sql ? '是' : '否'}</li>
+                </ul>
+            `;
+        }
         
-        comparisonSection.style.display = 'block';
-    }
-}
-
-function showTableInfo(tableName, modalInstance) {
-    const tableInfoContent = document.getElementById('tableInfoContent');
-    const modalTitle = document.getElementById('tableInfoModalLabel');
-    const modalEl = document.getElementById('tableInfoModal');
-    
-    modalTitle.innerHTML = `<i class="fas fa-table me-2"></i>${tableName} 表格資訊`;
-    modalEl.setAttribute('data-current-table', tableName);
-    
-    tableInfoContent.innerHTML = `
-        <div class="text-center py-4">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">載入中...</span>
-            </div>
-            <div class="mt-2 text-muted">正在載入表格資訊...</div>
-        </div>
-    `;
-    
-    modalInstance.show();
-    
-    // 安全地處理 table_info JSON 數據
-    try {
-        const tableData = JSON.parse('{{ table_info|tojson|safe }}');
-        const table = tableData[tableName];
-        
-        setTimeout(() => {
-            if (table && table.columns) {
-                let html = `
-                    <div class="mb-4">
-                        <h5 class="text-primary mb-3">
-                            <i class="fas fa-database me-2"></i>${tableName} 表格結構
-                        </h5>
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-hover">
-                                <thead class="table-primary">
-                                    <tr>
-                                        <th style="width: 35%;">欄位名稱</th>
-                                        <th style="width: 25%;">資料類型</th>
-                                        <th style="width: 15%;">主鍵</th>
-                                        <th style="width: 15%;">允許NULL</th>
-                                        <th style="width: 10%;">預設值</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                `;
-                
-                table.columns.forEach(col => {
-                    const isPrimaryKey = col[5] === 1 ? '是' : '否';
-                    const allowNull = col[3] === 0 ? '否' : '是';
-                    const defaultValue = col[4] ? col[4] : '-';
-                    
-                    html += `
-                        <tr>
-                            <td><strong><code>${col[1]}</code></strong></td>
-                            <td><span class="badge bg-secondary">${col[2]}</span></td>
-                            <td>${isPrimaryKey === '是' ? '<span class="badge bg-warning">是</span>' : '否'}</td>
-                            <td>${allowNull === '否' ? '<span class="badge bg-danger">否</span>' : '是'}</td>
-                            <td><code>${defaultValue}</code></td>
-                        </tr>
-                    `;
-                });
-                
-                html += `
-                        </tbody>
-                    </table>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="card bg-light">
-                                <div class="card-body">
-                                    <h6 class="card-title text-primary">
-                                        <i class="fas fa-info-circle me-1"></i>表格統計
-                                    </h6>
-                                    <ul class="list-unstyled mb-0">
-                                        <li><strong>總欄位數：</strong> ${table.columns.length}</li>
-                                        <li><strong>主鍵欄位：</strong> ${table.columns.filter(col => col[5] === 1).length}</li>
-                                        <li><strong>必填欄位：</strong> ${table.columns.filter(col => col[3] === 0).length}</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card bg-light">
-                                <div class="card-body">
-                                    <h6 class="card-title text-success">
-                                        <i class="fas fa-lightbulb me-1"></i>常用查詢範例
-                                    </h6>
-                                    <div class="small">
-                                        <code>SELECT * FROM ${tableName} LIMIT 10;</code><br>
-                                        <code>SELECT COUNT(*) FROM ${tableName};</code><br>
-                                        <code>DESC ${tableName};</code>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                tableInfoContent.innerHTML = html;
-            } else {
-                tableInfoContent.innerHTML = `
-                    <div class="text-center py-4">
-                        <i class="fas fa-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
-                        <h5 class="mt-3 text-warning">找不到表格資訊</h5>
-                        <p class="text-muted">無法載入 ${tableName} 的詳細資訊</p>
-                    </div>
-                `;
-            }
-        }, 800);
-    } catch (error) {
-        console.error('Error parsing table data:', error);
-        tableInfoContent.innerHTML = `
-            <div class="text-center py-4">
-                <i class="fas fa-exclamation-triangle text-danger" style="font-size: 3rem;"></i>
-                <h5 class="mt-3 text-danger">資料解析錯誤</h5>
-                <p class="text-muted">無法解析表格資訊數據</p>
-            </div>
-        `;
+        if (comparisonSection) {
+            comparisonSection.style.display = 'block';
+        }
     }
 }
 </script>

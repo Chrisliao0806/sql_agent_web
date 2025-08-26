@@ -1,9 +1,8 @@
-import os
 import ast
 import logging
 import re
 from dotenv import load_dotenv
-from langchain_ollama import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools.sql_database.tool import QuerySQLDatabaseTool
 from langchain_community.utilities import SQLDatabase
 from langchain_core.prompts import PromptTemplate
@@ -11,8 +10,8 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import START, END, StateGraph
 from langchain_core.output_parsers import StrOutputParser
 
-from .choose_state import State, QueryOutput
-from .prompt import SQLTEMPLATE
+from services.choose_state import State, QueryOutput
+from services.prompt import SQLTEMPLATE
 
 load_dotenv()
 
@@ -50,19 +49,30 @@ class SQLAgent:
         run(question: str) -> dict: Executes the workflow to answer a question using SQL.
     """
 
-    def __init__(self, db_path, top_k=5, api_key=None):
+    def __init__(self, db_path, top_k=5, api_key=None, model_type="openai"):
         logger.info("Initializing SQLAgent with database path: %s", db_path)
         self.db_path = db_path
         self.top_k = top_k
         self.database = SQLDatabase.from_uri(db_path)
+        self.model_type = model_type
 
-        # 使用提供的 API Key 或環境變量
+        # 根據模型類型和 API Key 設置 LLM
         if api_key:
-            self.llm = ChatOpenAI(
-                model="gpt-4.1-nano", temperature=0.2, api_key=api_key
-            )
+            if model_type == "gemini":
+                self.llm = ChatGoogleGenerativeAI(
+                    model="gemini-2.5-flash", temperature=0.2, google_api_key=api_key
+                )
+            else:  # default to openai
+                self.llm = ChatOpenAI(
+                    model="gpt-4.1-nano", temperature=0.2, api_key=api_key
+                )
         else:
-            self.llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
+            if model_type == "gemini":
+                self.llm = ChatGoogleGenerativeAI(
+                    model="gemini-2.5-flash", temperature=0.2
+                )
+            else:  # default to openai
+                self.llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
 
         self.query_prompt_template = PromptTemplate.from_template(SQLTEMPLATE)
 
