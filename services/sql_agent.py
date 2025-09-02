@@ -141,15 +141,21 @@ class SQLAgent:
         """Generate answer from SQL results"""
         logger.info("GENERATE ANSWER")
         try:
-            prompt = (
-                "Given the following user question, corresponding SQL query, "
-                "and SQL result, answer the user question.\n\n"
-                f"Question: {state['question']}\n"
-                f"SQL Query: {state['query']}\n"
-                f"SQL Result: {state['result']}\n\n"
-            )
+            prompt = """
+            你是一個 SQL 專家，擅長從 SQL 查詢和結果中生成答案。
+            根據以下的使用者問題、對應的 SQL 查詢和 SQL 結果，回答使用者的問題。
+            使用者問題：{{question}}
+            SQL 查詢語法：{{query}}
+            SQL 查詢結果：{{result}}
 
-            prompt += "請用繁體中文回答問題。\n"
+            不需要提供 SQL 查詢的語法，只需根據 SQL 查詢結果提供答案。
+            注意：請使用繁體中文作答，並在回答前仔細思考，清楚表達你的分析過程與理由，避免直接給出簡單的答案，要求有深度的回答，並避免使用不雅詞彙。
+            """
+            prompt = (
+                prompt.replace("{{question}}", state["question"])
+                .replace("{{query}}", state["query"])
+                .replace("{{result}}", state["result"])
+            )
 
             sql_output_chain = self.llm | StrOutputParser()
             response = sql_output_chain.invoke(prompt)
