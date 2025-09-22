@@ -46,7 +46,7 @@
                         <h5 class="text-muted mb-3">選擇或拖拽您的資料庫或CSV文件</h5>
                         <input type="file" class="form-control" name="file" accept=".db,.sqlite,.sqlite3,.csv" required>
                         <small class="text-muted mt-2 d-block">
-                            支援格式：.db, .sqlite, .sqlite3, .csv (最大 16MB)
+                            支援格式：.db, .sqlite, .sqlite3, .csv (最大 50MB)
                         </small>
                     </div>
                     
@@ -224,9 +224,9 @@ document.getElementById('uploadForm').addEventListener('submit', function(e) {
     }
     
     // 檢查文件大小
-    const maxSize = 16 * 1024 * 1024; // 16MB
+    const maxSize = 50 * 1024 * 1024; // 50MB
     if (file.size > maxSize) {
-        showNotification('文件大小超過 16MB 限制，請選擇較小的文件', 'error');
+        showNotification('文件大小超過 50MB 限制，請選擇較小的文件', 'error');
         return;
     }
     
@@ -309,7 +309,7 @@ document.getElementById('uploadForm').addEventListener('submit', function(e) {
         
         let errorMessage = '文件上傳失敗，請重試';
         if (error.message.includes('413')) {
-            errorMessage = '文件過大，請選擇小於 16MB 的文件';
+            errorMessage = '文件過大，請選擇小於 50MB 的文件';
         } else if (error.message.includes('415')) {
             errorMessage = '不支援的文件格式';
         } else if (error.message.includes('timeout')) {

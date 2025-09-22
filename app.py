@@ -10,7 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here")
 app.config["UPLOAD_FOLDER"] = "uploads"
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max file size
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max file size
 
 # 確保上傳資料夾存在
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
@@ -54,7 +54,18 @@ def convert_csv_to_sqlite(csv_path, db_path):
                         )
 
                     # 讀取完整文件，使用分塊讀取避免記憶體問題
-                    chunk_size = 5000 if len(sample_df.columns) > 1000 else 10000
+                    # 動態調整chunk_size基於文件大小和列數
+                    file_size = os.path.getsize(csv_path)
+                    if file_size > 30 * 1024 * 1024:  # 大於30MB
+                        chunk_size = 2000 if len(sample_df.columns) > 1000 else 3000
+                    elif file_size > 10 * 1024 * 1024:  # 大於10MB
+                        chunk_size = 3000 if len(sample_df.columns) > 1000 else 5000
+                    else:
+                        chunk_size = 5000 if len(sample_df.columns) > 1000 else 10000
+
+                    print(
+                        f"文件大小: {file_size / (1024 * 1024):.2f}MB，使用chunk_size: {chunk_size}"
+                    )
                     chunks = []
 
                     for chunk in pd.read_csv(
@@ -62,6 +73,11 @@ def convert_csv_to_sqlite(csv_path, db_path):
                     ):
                         if not chunk.empty:
                             chunks.append(chunk)
+
+                        # 記憶體管理：如果累積的chunks過多，先合併一次
+                        if len(chunks) > 10:
+                            temp_df = pd.concat(chunks, ignore_index=True)
+                            chunks = [temp_df]
 
                     if chunks:
                         df = pd.concat(chunks, ignore_index=True)
@@ -135,12 +151,14 @@ def convert_csv_to_sqlite(csv_path, db_path):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # 設置SQLite優化參數以處理大量列數
+        # 設置SQLite優化參數以處理大文件和大量列數
         cursor.execute("PRAGMA journal_mode = MEMORY")
         cursor.execute("PRAGMA synchronous = OFF")
-        cursor.execute("PRAGMA cache_size = 1000000")
+        cursor.execute("PRAGMA cache_size = 2000000")  # 增加緩存大小
         cursor.execute("PRAGMA locking_mode = EXCLUSIVE")
         cursor.execute("PRAGMA temp_store = MEMORY")
+        cursor.execute("PRAGMA mmap_size = 268435456")  # 256MB memory map
+        cursor.execute("PRAGMA page_size = 65536")  # 增加頁面大小
 
         # 取得CSV檔案名稱作為表格名稱
         table_name = os.path.splitext(os.path.basename(csv_path))[0]
@@ -155,13 +173,24 @@ def convert_csv_to_sqlite(csv_path, db_path):
 
         try:
             # 對於正常列數，使用pandas的to_sql方法
+            # 動態調整寫入batch_size基於文件大小
+            file_size = os.path.getsize(csv_path)
+            if file_size > 30 * 1024 * 1024:  # 大於30MB
+                write_chunksize = 500
+            elif file_size > 10 * 1024 * 1024:  # 大於10MB
+                write_chunksize = 800
+            else:
+                write_chunksize = 1000
+
+            print(f"使用寫入chunksize: {write_chunksize}")
+
             df.to_sql(
                 table_name,
                 conn,
                 if_exists="replace",
                 index=False,
                 method="multi",
-                chunksize=1000,
+                chunksize=write_chunksize,
             )
 
             # 驗證數據是否成功插入
@@ -200,13 +229,15 @@ def convert_csv_to_sqlite(csv_path, db_path):
                 False,
                 f"CSV文件欄位數量過多。SQLite 在處理大量欄位時有限制，建議：1) 減少欄位數量 2) 將數據分割為多個文件。錯誤詳情: {error_msg}",
             )
-        elif "memory" in error_msg.lower():
+        elif "memory" in error_msg.lower() or "out of memory" in error_msg.lower():
             return (
                 False,
-                f"文件過大導致記憶體不足，請考慮使用較小的文件。錯誤詳情: {error_msg}",
+                f"文件過大導致記憶體不足。建議：1) 減少文件大小到30MB以下 2) 移除不需要的欄位。錯誤詳情: {error_msg}",
             )
         elif "encoding" in error_msg.lower():
             return False, f"文件編碼問題，請檢查文件編碼格式。錯誤詳情: {error_msg}"
+        elif "disk space" in error_msg.lower() or "no space" in error_msg.lower():
+            return False, f"磁盤空間不足，請清理磁盤空間後重試。錯誤詳情: {error_msg}"
         else:
             return False, f"CSV轉換失敗: {error_msg}"
 
@@ -240,9 +271,11 @@ def convert_csv_to_sqlite_chunked(csv_path, db_path, encoding):
         # 設置SQLite優化參數
         cursor.execute("PRAGMA journal_mode = MEMORY")
         cursor.execute("PRAGMA synchronous = OFF")
-        cursor.execute("PRAGMA cache_size = 1000000")
+        cursor.execute("PRAGMA cache_size = 2000000")  # 增加緩存大小
         cursor.execute("PRAGMA locking_mode = EXCLUSIVE")
         cursor.execute("PRAGMA temp_store = MEMORY")
+        cursor.execute("PRAGMA mmap_size = 268435456")  # 256MB memory map
+        cursor.execute("PRAGMA page_size = 65536")  # 增加頁面大小
 
         # 基礎表格名稱
         base_table_name = os.path.splitext(os.path.basename(csv_path))[0]
@@ -276,10 +309,21 @@ def convert_csv_to_sqlite_chunked(csv_path, db_path, encoding):
                     # 其他分片包含第一列（日期）和當前分片的列
                     cols_to_read = [0] + list(range(start_col, end_col))
 
-                # 分塊讀取數據
+                # 分塊讀取數據，動態調整chunk_size
+                file_size = os.path.getsize(csv_path)
+                if file_size > 30 * 1024 * 1024:  # 大於30MB
+                    read_chunk_size = 2000
+                elif file_size > 10 * 1024 * 1024:  # 大於10MB
+                    read_chunk_size = 3000
+                else:
+                    read_chunk_size = 5000
+
                 chunk_dfs = []
                 for chunk in pd.read_csv(
-                    csv_path, encoding=encoding, chunksize=5000, usecols=cols_to_read
+                    csv_path,
+                    encoding=encoding,
+                    chunksize=read_chunk_size,
+                    usecols=cols_to_read,
                 ):
                     if not chunk.empty:
                         chunk_dfs.append(chunk)
@@ -345,14 +389,22 @@ def convert_csv_to_sqlite_chunked(csv_path, db_path, encoding):
                 else:
                     table_name = f"{base_table_name}_part_{chunk_idx + 1}"
 
-                # 寫入SQLite
+                # 寫入SQLite，動態調整寫入batch_size
+                file_size = os.path.getsize(csv_path)
+                if file_size > 30 * 1024 * 1024:  # 大於30MB
+                    write_chunk_size = 300
+                elif file_size > 10 * 1024 * 1024:  # 大於10MB
+                    write_chunk_size = 400
+                else:
+                    write_chunk_size = 500
+
                 df_chunk.to_sql(
                     table_name,
                     conn,
                     if_exists="replace",
                     index=False,
                     method="multi",
-                    chunksize=500,
+                    chunksize=write_chunk_size,
                 )
 
                 # 驗證數據
@@ -529,7 +581,7 @@ def use_default_data():
         # 如果SQLite文件已存在，直接使用
         if os.path.exists(db_filepath):
             table_info = get_table_info(db_filepath)
-            flash(f"已載入預設的台灣空氣品質資料，表格名稱: taiwan_air")
+            flash("已載入預設的台灣空氣品質資料，表格名稱: taiwan_air")
             return render_template(
                 "database_info.html", filename=db_filename, table_info=table_info
             )
