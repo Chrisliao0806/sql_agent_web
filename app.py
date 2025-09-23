@@ -565,23 +565,23 @@ def compare_queries(filename):
 
 @app.route("/use_default_data")
 def use_default_data():
-    """使用預設的台灣空氣品質資料"""
+    """使用預設的簡易交易資料"""
     try:
         # 預設資料的路徑
-        default_csv_path = os.path.join("default_data", "taiwan_air.csv")
+        default_csv_path = os.path.join("default_data", "pwc_demo.csv")
 
         if not os.path.exists(default_csv_path):
             flash("預設資料文件不存在")
             return redirect(url_for("index"))
 
         # 生成對應的SQLite文件名（在uploads資料夾中）
-        db_filename = "taiwan_air_default.db"
+        db_filename = "pwc_demo_default.db"
         db_filepath = os.path.join(app.config["UPLOAD_FOLDER"], db_filename)
 
         # 如果SQLite文件已存在，直接使用
         if os.path.exists(db_filepath):
             table_info = get_table_info(db_filepath)
-            flash("已載入預設的台灣空氣品質資料，表格名稱: taiwan_air")
+            flash("已載入預設的簡易交易資料，表格名稱: pwc_demo")
             return render_template(
                 "database_info.html", filename=db_filename, table_info=table_info
             )
@@ -592,7 +592,7 @@ def use_default_data():
         if success:
             # 獲取資料庫資訊
             table_info = get_table_info(db_filepath)
-            flash(f"已成功載入預設的台灣空氣品質資料，表格名稱: {result}")
+            flash(f"已成功載入預設的簡易交易資料，表格名稱: {result}")
             return render_template(
                 "database_info.html", filename=db_filename, table_info=table_info
             )
